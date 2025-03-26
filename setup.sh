@@ -668,17 +668,6 @@ vim.api.nvim_create_autocmd('FileType', {
   end
 })
 
--- ================= COMMENTS =================
--- This is a good place to add your own customizations as you learn
--- For example:
--- 1. Add custom plugin configurations
--- 2. Define new keymappings for your workflow
--- 3. Set up language-specific settings
-
--- Try adding a line below to see the effect:
--- vim.cmd('colorscheme tokyonight')
-EOL
-
 # Create WSL utilities
 mkdir -p "$SETUP_DIR/configs/wsl"
 
@@ -769,9 +758,6 @@ cat > "$SETUP_DIR/configs/git/gitconfig" << 'EOL'
   hist = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
 EOL
 
-Here is the corrected version where everything is printed as plain text without splitting into separate code blocks:
-
-```
 # Create a guide for editing configs
 cat > "$SETUP_DIR/docs/editing-configs.md" << 'EOL'
 # How to Edit Your Development Environment
@@ -802,4 +788,14 @@ nvim ~/dev-env/configs/zsh/zshrc
 nvim ~/dev-env/configs/git/gitconfig
 ```
 EOL
-```
+
+-- ================= COMMENTS =================
+-- This is a good place to add your own customizations as you learn
+-- For example:
+-- 1. Add custom plugin configurations
+-- 2. Define new keymappings for your workflow
+-- 3. Set up language-specific settings
+
+-- Try adding a line below to see the effect:
+-- vim.cmd('colorscheme rosepine')
+EOL
