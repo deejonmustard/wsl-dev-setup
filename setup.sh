@@ -464,6 +464,19 @@ if ! grep -q 'PATH="$HOME/bin:$HOME/.local/bin:$PATH"' ~/.bashrc; then
   echo -e "${YELLOW}Run 'source ~/.bashrc' to apply changes to current session${NC}"
 fi
 
+# Install Neovim providers
+echo -e "${BLUE}Installing Neovim providers...${NC}"
+pip install pynvim
+check_error "Failed to install Python provider for Neovim"
+
+npm install -g neovim
+check_error "Failed to install Node.js provider for Neovim"
+
+# Install Treesitter language parsers
+echo -e "${BLUE}Installing Treesitter language parsers...${NC}"
+nvim --headless -c "TSInstall javascript typescript python rust lua" -c "quit"
+check_error "Failed to install Treesitter language parsers"
+
 # Run our Ansible playbook
 echo -e "${BLUE}Updating your development environment...${NC}"
 ansible-playbook -i localhost, "$SCRIPT_DIR/ansible/setup.yml"
@@ -2308,12 +2321,52 @@ check_error "Failed to copy and make WSL utilities executable"
 # Let's source .bashrc to add PATH immediately in this session
 source ~/.bashrc
 
+# Create a script to install Neovim providers and Treesitter language parsers
+cat > "$SETUP_DIR/bin/fix-neovim.sh" << 'EOL'
+#!/bin/bash
+# Fix Neovim providers and install language parsers
+
+# Color definitions
+NC='\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+
+echo -e "${BLUE}=== Installing Python provider for Neovim ===${NC}"
+pip install pynvim
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to install Python provider${NC}"
+    echo -e "${YELLOW}Trying with pip3...${NC}"
+    pip3 install pynvim
+fi
+
+echo -e "${BLUE}=== Installing Node.js provider for Neovim ===${NC}"
+npm install -g neovim
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to install Node.js provider${NC}"
+    echo -e "${YELLOW}Make sure Node.js is installed correctly${NC}"
+fi
+
+echo -e "${BLUE}=== Installing Treesitter language parsers ===${NC}"
+nvim --headless -c "TSInstall javascript typescript python rust lua" -c "quit"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to install Treesitter parsers${NC}"
+    echo -e "${YELLOW}You can install them manually by running :TSInstall in Neovim${NC}"
+fi
+
+echo -e "${GREEN}Neovim providers and language parsers installation completed${NC}"
+echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
+EOL
+chmod +x "$SETUP_DIR/bin/fix-neovim.sh"
+check_error "Failed to create fix-neovim.sh script"
+
 print_title "Initial Setup Complete!"
 echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
 echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
 echo -e "  ${YELLOW}source ~/.bashrc${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
-echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
+echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env
 echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
 echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
 echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide.md${NC}"
