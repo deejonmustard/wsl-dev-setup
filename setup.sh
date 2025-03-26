@@ -38,6 +38,37 @@ check_error "Failed to update package lists"
 sudo apt install -y curl wget git python3 python3-pip unzip build-essential
 check_error "Failed to install core dependencies"
 
+# Install Neovim directly before setting up Ansible
+print_header "Installing Neovim"
+mkdir -p ~/.local/bin
+mkdir -p ~/tools
+
+# Check if Neovim is already installed
+if ! command -v nvim &> /dev/null; then
+  echo "Downloading and installing Neovim..."
+  
+  # Get the latest stable Neovim release
+  cd ~/tools
+  wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
+  check_error "Failed to download Neovim"
+  
+  # Extract Neovim
+  tar -xzf nvim-linux64.tar.gz
+  check_error "Failed to extract Neovim"
+  
+  # Create symbolic link
+  ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
+  check_error "Failed to create Neovim symbolic link"
+  
+  # Make sure PATH includes ~/.local/bin
+  export PATH="$HOME/.local/bin:$PATH"
+  
+  echo "Neovim installed successfully at ~/.local/bin/nvim"
+  cd "$SETUP_DIR" || { echo "Failed to change directory"; exit 1; }
+else
+  echo "Neovim is already installed"
+fi
+
 # Install Ansible (as recommended by ThePrimeagen for reproducible environments)
 print_header "Setting up Ansible"
 if ! command -v ansible &> /dev/null; then
@@ -117,6 +148,9 @@ check_error() {
   fi
 }
 
+# Make sure PATH includes local bin directory
+export PATH="$HOME/.local/bin:$PATH"
+
 # Navigate to our environment directory
 cd "$(dirname "$0")" || { echo "Failed to change directory"; exit 1; }
 
@@ -135,7 +169,7 @@ echo "Remember: You can customize any aspect by editing files in the configs/ di
 EOL
 chmod +x "$SETUP_DIR/update.sh"
 
-# Create editor roles with FIXED Neovim installation
+# Create editor roles - MODIFIED for proper Neovim setup
 mkdir -p "$SETUP_DIR/ansible/roles/editor/tasks"
 cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
 ---
@@ -150,26 +184,51 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
     - "~/.local/bin"
     - "~/tools"
 
-- name: Check if Neovim is installed
-  command: which nvim
-  register: nvim_installed
-  ignore_errors: true
+- name: Check if Neovim is installed and in PATH
+  shell: command -v nvim || echo "not_found"
+  register: nvim_check
   changed_when: false
 
-- name: Download and install Neovim (if not installed)
+- name: Verify Neovim can be executed
+  shell: |
+    if command -v nvim &> /dev/null; then
+      echo "installed"
+    else
+      # Check if it's in ~/.local/bin but not in PATH
+      if [ -f "$HOME/.local/bin/nvim" ]; then
+        echo "found_in_local_bin"
+      else
+        echo "not_found"
+      fi
+    fi
+  register: nvim_exec_check
+  changed_when: false
+
+- name: Set PATH to include ~/.local/bin if Neovim is there but not in PATH
+  shell: export PATH="$HOME/.local/bin:$PATH"
+  when: nvim_exec_check.stdout == "found_in_local_bin"
+
+- name: Install Neovim if not found
   block:
-    - name: Download Neovim
+    - name: Download Neovim stable release
       get_url:
-        url: https://github.com/neovim/neovim/releases/download/v0.9.5/nvim-linux64.tar.gz
+        url: https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
         dest: ~/tools/nvim-linux64.tar.gz
-      when: nvim_installed.rc != 0
+      when: nvim_exec_check.stdout == "not_found"
+
+    - name: Ensure no old Neovim installation exists
+      file:
+        path: ~/tools/nvim-linux64
+        state: absent
+      when: nvim_exec_check.stdout == "not_found"
 
     - name: Extract Neovim
-      unarchive:
-        src: ~/tools/nvim-linux64.tar.gz
-        dest: ~/tools/
-        remote_src: yes
-      when: nvim_installed.rc != 0
+      shell: |
+        cd ~/tools
+        tar -xzf nvim-linux64.tar.gz
+      args:
+        creates: ~/tools/nvim-linux64/bin/nvim
+      when: nvim_exec_check.stdout == "not_found"
 
     - name: Create symbolic link to Neovim
       file:
@@ -177,8 +236,16 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
         dest: ~/.local/bin/nvim
         state: link
         force: yes
-      when: nvim_installed.rc != 0
-  when: nvim_installed.rc != 0
+      when: nvim_exec_check.stdout == "not_found"
+
+    - name: Verify Neovim installation
+      shell: |
+        export PATH="$HOME/.local/bin:$PATH"
+        nvim --version
+      register: nvim_verify
+      when: nvim_exec_check.stdout == "not_found"
+      failed_when: nvim_verify.rc != 0
+  when: nvim_exec_check.stdout == "not_found"
 
 - name: Check if Kickstart Neovim is already installed
   stat:
@@ -208,14 +275,17 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
     not nvim_git.stat.exists or
     (kickstart_check.stdout is defined and kickstart_check.stdout == "not_found")
 
+- name: Ensure custom directory exists
+  file:
+    path: ~/.config/nvim/lua/custom
+    state: directory
+    mode: '0755'
+
 - name: Copy custom Neovim configuration
   copy:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
+    src: "{{ playbook_dir }}/../configs/nvim/custom/init.lua"
+    dest: "~/.config/nvim/lua/custom/init.lua"
     force: yes
-  with_items:
-    - { src: "configs/nvim/custom/init.lua", dest: "~/.config/nvim/lua/custom/init.lua" }
-  when: item.src is defined
 EOL
 
 # Create core-tools role
@@ -904,4 +974,3 @@ echo "2. After installation completes, restart your terminal"
 echo "3. Consider changing your default shell to Zsh: chsh -s $(which zsh)"
 echo "4. Read the cheatsheet at: ~/dev-env/docs/dev-cheatsheet.md"
 echo -e "\nHappy coding!"
-```
