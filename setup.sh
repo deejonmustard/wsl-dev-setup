@@ -8,6 +8,19 @@ print_header() {
   echo -e "\n\033[1;36m==== $1 ====\033[0m"
 }
 
+# Error handling function
+check_error() {
+  if [ $? -ne 0 ]; then
+    echo -e "\033[1;31mERROR: $1\033[0m"
+    echo "Would you like to continue anyway? (y/n)"
+    read -r response
+    if [[ "$response" != "y" ]]; then
+      echo "Setup aborted."
+      exit 1
+    fi
+  fi
+}
+
 print_header "Welcome to the Ultimate WSL Development Environment Setup"
 echo "This script will set up a developer environment optimized for WSL Debian"
 echo "You can easily modify any part of this setup later"
@@ -15,23 +28,22 @@ echo "You can easily modify any part of this setup later"
 # Create our workspace structure
 mkdir -p ~/dev-env/{ansible,configs,bin,docs}
 SETUP_DIR="$HOME/dev-env"
-cd "$SETUP_DIR"
+cd "$SETUP_DIR" || { echo "Failed to change directory"; exit 1; }
 
 # Ensure basic dependencies are installed
 print_header "Installing core dependencies"
 sudo apt update
+check_error "Failed to update package lists"
+
 sudo apt install -y curl wget git python3 python3-pip unzip
+check_error "Failed to install core dependencies"
 
 # Install Ansible (as recommended by ThePrimeagen for reproducible environments)
 print_header "Setting up Ansible"
 if ! command -v ansible &> /dev/null; then
   echo "Installing Ansible..."
-  python3 -m pip install --user ansible
-  
-  # Add Ansible to PATH
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-  export PATH="$HOME/.local/bin:$PATH"
-  
+  sudo apt install -y ansible  # System installation via apt
+  check_error "Failed to install Ansible"
   echo "Ansible installed successfully!"
 else
   echo "Ansible is already installed"
@@ -83,6 +95,8 @@ cat > "$SETUP_DIR/ansible/setup.yml" << 'EOL'
     - shell          # Zsh with useful plugins
     - tmux           # Terminal multiplexer
     - wsl-specific   # WSL-specific optimizations
+    - git-config     # Git configuration
+    - nodejs         # Node.js and npm
 EOL
 
 # Create update script
@@ -90,8 +104,21 @@ cat > "$SETUP_DIR/update.sh" << 'EOL'
 #!/bin/bash
 # Update script for WSL development environment
 
+# Error handling function
+check_error() {
+  if [ $? -ne 0 ]; then
+    echo -e "\033[1;31mERROR: $1\033[0m"
+    echo "Would you like to continue anyway? (y/n)"
+    read -r response
+    if [[ "$response" != "y" ]]; then
+      echo "Setup aborted."
+      exit 1
+    fi
+  fi
+}
+
 # Navigate to our environment directory
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || { echo "Failed to change directory"; exit 1; }
 
 # Check for custom variables
 if [ -f "config.env" ]; then
@@ -101,6 +128,7 @@ fi
 # Run our Ansible playbook
 echo "Updating your development environment..."
 ansible-playbook -i localhost, ansible/setup.yml
+check_error "Ansible playbook execution failed"
 
 echo "Environment updated successfully!"
 echo "Remember: You can customize any aspect by editing files in the configs/ directory"
@@ -308,8 +336,106 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
     backup: yes
 EOL
 
+# NEW: Create git-config role
+mkdir -p "$SETUP_DIR/ansible/roles/git-config/tasks"
+cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
+---
+# Git configuration setup
+
+- name: Check if git user name is already configured
+  command: git config --global --get user.name
+  register: git_user_name
+  ignore_errors: true
+  changed_when: false
+
+- name: Check if git user email is already configured
+  command: git config --global --get user.email
+  register: git_user_email
+  ignore_errors: true
+  changed_when: false
+
+- name: Get user info for Git configuration
+  block:
+    - name: Ask for git username
+      pause:
+        prompt: "Enter your Git username"
+      register: git_username_input
+      when: git_user_name.rc != 0
+
+    - name: Ask for git email
+      pause:
+        prompt: "Enter your Git email"
+      register: git_email_input
+      when: git_user_email.rc != 0
+  when: git_user_name.rc != 0 or git_user_email.rc != 0
+
+- name: Configure Git
+  block:
+    - name: Set git username
+      command: git config --global user.name "{{ git_username_input.user_input }}"
+      when: git_user_name.rc != 0
+
+    - name: Set git email
+      command: git config --global user.email "{{ git_email_input.user_input }}"
+      when: git_user_email.rc != 0
+  when: git_user_name.rc != 0 or git_user_email.rc != 0
+
+- name: Configure helpful Git defaults
+  command: "{{ item }}"
+  loop:
+    - git config --global core.editor "nvim"
+    - git config --global init.defaultBranch main
+    - git config --global pull.rebase false
+    - git config --global color.ui auto
+    - git config --global push.default simple
+    - git config --global core.autocrlf input
+EOL
+
+# NEW: Create nodejs role
+mkdir -p "$SETUP_DIR/ansible/roles/nodejs/tasks"
+cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
+---
+# Node.js and npm setup
+
+- name: Check if Node.js is installed
+  command: which node
+  register: node_installed
+  ignore_errors: true
+  changed_when: false
+
+- name: Install Node.js using nvm
+  block:
+    - name: Download nvm
+      shell: >
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+      args:
+        creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
+
+    - name: Install latest LTS version of Node.js
+      shell: >
+        export NVM_DIR="$HOME/.nvm" && 
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
+        nvm install --lts
+      args:
+        executable: /bin/bash
+  when: node_installed.rc != 0
+
+- name: Install global npm packages
+  shell: >
+    export NVM_DIR="$HOME/.nvm" && 
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
+    npm install -g {{ item }}
+  loop:
+    - typescript
+    - eslint
+    - prettier
+  args:
+    executable: /bin/bash
+  when: node_installed.rc != 0 or node_installed.rc == 0
+EOL
+
 # Create configs directory structure
-mkdir -p "$SETUP_DIR/configs/"{nvim/custom,zsh,tmux,wsl}
+mkdir -p "$SETUP_DIR/configs/"{nvim/custom,zsh,tmux,wsl,git}
 
 # Create Zsh configuration file
 cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
@@ -333,6 +459,11 @@ source $ZSH/oh-my-zsh.sh
 # Environment setup
 export EDITOR='nvim'
 export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+
+# NVM setup
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # Initialize zoxide (smart cd command)
 if command -v zoxide >/dev/null; then
@@ -386,6 +517,7 @@ editconfig() {
     "tmux:$HOME/dev-env/configs/tmux/tmux.conf"
     "nvim:$HOME/dev-env/configs/nvim/custom/init.lua"
     "ansible:$HOME/dev-env/ansible/setup.yml"
+    "git:$HOME/dev-env/configs/git/gitconfig"
   )
   
   local selected=$(printf "%s\n" "${configs[@]}" | cut -d ':' -f 1 | fzf --prompt="Select config to edit: ")
@@ -603,6 +735,40 @@ localhostForwarding=true
 kernelCommandLine=sysctl.vm.swappiness=10
 EOL
 
+# NEW: Create Git config template
+cat > "$SETUP_DIR/configs/git/gitconfig" << 'EOL'
+# This is a template gitconfig that will be customized by the Ansible playbook
+# You can add additional Git configurations here
+
+[core]
+  editor = nvim
+  autocrlf = input
+  whitespace = trailing-space,space-before-tab
+  excludesfile = ~/.gitignore_global
+
+[color]
+  ui = auto
+
+[init]
+  defaultBranch = main
+
+[pull]
+  rebase = false
+
+[push]
+  default = simple
+
+[alias]
+  st = status
+  co = checkout
+  br = branch
+  ci = commit
+  unstage = reset HEAD --
+  last = log -1 HEAD
+  visual = !gitk
+  hist = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
+EOL
+
 # Create a guide for editing configs
 cat > "$SETUP_DIR/docs/editing-configs.md" << 'EOL'
 # How to Edit Your Development Environment
@@ -627,3 +793,8 @@ All configuration files are stored in the `~/dev-env/configs/` directory:
 
 ```bash
 nvim ~/dev-env/configs/zsh/zshrc
+
+### Editing Git Configuration
+
+```bash
+nvim ~/dev-env/configs/git/gitconfig
