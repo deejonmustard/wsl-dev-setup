@@ -20,10 +20,15 @@ check_error() {
     fi
   fi
 }
-
-print_header "Welcome to the Ultimate WSL Development Environment Setup"
+SCRIPT_VERSION="0.1.0-beta.1"
+print_header "Welcome to the Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
 echo "This script will set up a developer environment optimized for WSL Debian"
 echo "You can easily modify any part of this setup later"
+
+# Update system
+print_header "Updating System Packages"
+sudo apt update
+sudo apt upgrade -y
 
 # Create our workspace structure
 mkdir -p ~/dev-env/{ansible,configs,bin,docs}
