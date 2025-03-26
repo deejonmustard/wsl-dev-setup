@@ -399,7 +399,7 @@ NC='\033[0m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-RED='\033[0m'
+RED='\033[0;31m'
 
 # Error handling function
 check_error() {
@@ -488,27 +488,36 @@ cat > ~/.config/nvim/after/plugin/python-provider.lua << EOL
 -- Configure Neovim Python provider to use virtual environment
 vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
 EOL
-check_error "Failed to configure Python provider"
+
+# Install Node.js provider if nvm is available
+if [ -f "$HOME/.nvm/nvm.sh" ]; then
+  echo -e "${BLUE}Installing Node.js provider...${NC}"
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  npm install -g neovim
+else
+  echo -e "${YELLOW}NVM not found, skipping Node.js provider installation${NC}"
+fi
+
+# Configure nvim-treesitter
+mkdir -p ~/.config/nvim/after/plugin
+cat > ~/.config/nvim/after/plugin/treesitter-config.lua << EOL
+-- Configure nvim-treesitter to install without prompts
+require('nvim-treesitter.configs').setup({
+  auto_install = true,
+  ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
+  sync_install = false,
+})
+EOL
+
+echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
+echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
 
 # Update the PATH in current shell and .bashrc if not already set
 if ! grep -q 'PATH="$HOME/bin:$HOME/.local/bin:$PATH"' ~/.bashrc; then
   echo 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
   echo -e "${YELLOW}Added PATH update to ~/.bashrc${NC}"
   echo -e "${YELLOW}Run 'source ~/.bashrc' to apply changes to current session${NC}"
-fi
-
-# Configure nvim-treesitter to avoid prompts
-if [ ! -f ~/.config/nvim/after/plugin/treesitter-config.lua ]; then
-  cat > ~/.config/nvim/after/plugin/treesitter-config.lua << EOL
--- Configure nvim-treesitter to install without prompts
-local configs = require('nvim-treesitter.configs')
-configs.setup({
-  auto_install = true,
-  ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
-  sync_install = false,
-})
-EOL
-  check_error "Failed to configure treesitter"
 fi
 
 # Run our Ansible playbook
@@ -2354,6 +2363,67 @@ check_error "Failed to copy and make WSL utilities executable"
 
 # Let's source .bashrc to add PATH immediately in this session
 source ~/.bashrc
+
+# Create a script to install Neovim providers and Treesitter language parsers
+cat > "$SETUP_DIR/bin/fix-neovim.sh" << 'EOL'
+#!/bin/bash
+# Fix Neovim providers and install language parsers
+
+# Color definitions
+NC='\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+
+# Ensure virtual environment directory exists
+mkdir -p ~/.config/nvim/venv
+
+# Create virtual environment if needed
+if [ ! -f ~/.config/nvim/venv/bin/python ]; then
+  echo -e "${BLUE}=== Creating Python virtual environment ===${NC}"
+  if ! command -v python3 -m venv &> /dev/null; then
+    sudo apt-get install -y python3-venv python3-pip
+  fi
+  python3 -m venv ~/.config/nvim/venv
+fi
+
+echo -e "${BLUE}=== Installing Python provider for Neovim ===${NC}"
+~/.config/nvim/venv/bin/pip install pynvim
+
+# Configure Neovim to use the virtual environment
+mkdir -p ~/.config/nvim/after/plugin
+cat > ~/.config/nvim/after/plugin/python-provider.lua << EOL
+-- Configure Neovim Python provider to use virtual environment
+vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
+EOL
+
+# Install Node.js provider if nvm is available
+if [ -f "$HOME/.nvm/nvm.sh" ]; then
+  echo -e "${BLUE}=== Installing Node.js provider for Neovim ===${NC}"
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  npm install -g neovim
+else
+  echo -e "${YELLOW}NVM not found, skipping Node.js provider installation${NC}"
+fi
+
+# Configure nvim-treesitter
+mkdir -p ~/.config/nvim/after/plugin
+cat > ~/.config/nvim/after/plugin/treesitter-config.lua << EOL
+-- Configure nvim-treesitter to install without prompts
+require('nvim-treesitter.configs').setup({
+  auto_install = true,
+  ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
+  sync_install = false,
+})
+EOL
+
+echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
+echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
+EOL
+chmod +x "$SETUP_DIR/bin/fix-neovim.sh"
+check_error "Failed to create fix-neovim.sh script"
 
 print_title "Initial Setup Complete!"
 echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
