@@ -307,17 +307,32 @@ vim.api.nvim_create_autocmd('FileType', {
   end
 })
 
--- ================= COMMENTS =================
--- This is a good place to add your own customizations as you learn
--- -- For example:
--- -- 1. Add custom plugin configurations
--- -- 2. Define new keymappings for your workflow
--- -- 3. Set up language-specific settings
--- 
--- -- Try adding a line below to see the effect:
--- -- vim.cmd('colorscheme tokyonight-night')
+-- ================= THEME CONFIGURATION =================
+-- Add Rose Pine theme
+table.insert(require('lazy').plugins, {
+  'rose-pine/neovim',
+  name = 'rose-pine',
+  config = function()
+    require('rose-pine').setup({
+      variant = 'moon', -- moon, dawn, or main
+      dark_variant = 'moon',
+      bold_vert_split = false,
+      dim_nc_background = false,
+      disable_background = false,
+      disable_float_background = false,
+      disable_italics = false,
+      highlight_groups = {
+        -- Custom highlight group adjustments can go here
+      }
+    })
+    
+    -- Set colorscheme after options
+    vim.cmd('colorscheme rose-pine')
+  end,
+  priority = 1000, -- Load theme early
+})
 
--- Add to the top of your custom init.lua file
+-- ================= OTHER PLUGINS =================
 -- Configure nvim-treesitter to install without prompts
 vim.g.treesitter_auto_install = true
 EOL
@@ -390,7 +405,7 @@ EOL
 check_error "Failed to create main Ansible playbook"
 
 # Create update script with fixed paths
-cat > "$SETUP_DIR/update.sh" << 'EOL'
+cat > "$SETUP_DIR/update.sh" << 'ENDOFFILE'
 #!/bin/bash
 # Update script for WSL development environment
 
@@ -487,10 +502,10 @@ check_error "Failed to install Python provider for Neovim"
 
 # Configure Neovim to use the virtual environment
 mkdir -p ~/.config/nvim/after/plugin
-cat > ~/.config/nvim/after/plugin/python-provider.lua << EOF
+cat > ~/.config/nvim/after/plugin/python-provider.lua << 'EOFINNER'
 -- Configure Neovim Python provider to use virtual environment
 vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
-EOF
+EOFINNER
 
 # Install Node.js provider if nvm is available
 if [ -f "$HOME/.nvm/nvm.sh" ]; then
@@ -504,14 +519,14 @@ fi
 
 # Configure nvim-treesitter
 mkdir -p ~/.config/nvim/after/plugin
-cat > ~/.config/nvim/after/plugin/treesitter-config.lua << EOF
+cat > ~/.config/nvim/after/plugin/treesitter-config.lua << 'EOFINNER'
 -- Configure nvim-treesitter to install without prompts
 require('nvim-treesitter.configs').setup({
   auto_install = true,
   ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
   sync_install = false,
 })
-EOF
+EOFINNER
 
 echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
 echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
@@ -528,13 +543,18 @@ echo -e "${BLUE}Updating your development environment...${NC}"
 ansible-playbook -i localhost, "$SCRIPT_DIR/ansible/setup.yml"
 check_error "Ansible playbook execution failed"
 
+# Run the fix-neovim script to ensure all Neovim components are properly set up
+echo -e "${BLUE}Ensuring Neovim is properly configured...${NC}"
+"$SCRIPT_DIR/bin/fix-neovim.sh"
+check_error "Failed to run Neovim fix script"
+
 echo -e "${GREEN}Environment updated successfully!${NC}"
 echo -e "${YELLOW}Remember: You can customize any aspect by editing files in the configs/ directory${NC}"
 echo -e "\n${BLUE}To use the custom commands:${NC}"
 echo -e "  - Make sure to restart your terminal or run: source ~/.bashrc"
 echo -e "  - Then try commands like 'winopen', 'clip', etc."
 echo -e "  - Read the documentation at ~/dev-env/docs/ for more information"
-EOL
+ENDOFFILE
 check_error "Failed to create update script"
 chmod +x "$SETUP_DIR/update.sh"
 check_error "Failed to make update script executable"
@@ -2368,7 +2388,7 @@ check_error "Failed to copy and make WSL utilities executable"
 source ~/.bashrc
 
 # Create a script to install Neovim providers and Treesitter language parsers
-cat > "$SETUP_DIR/bin/fix-neovim.sh" << 'EOF'
+cat > "$SETUP_DIR/bin/fix-neovim.sh" << 'ENDOFFILE'
 #!/bin/bash
 # Fix Neovim providers and install language parsers
 
@@ -2387,6 +2407,22 @@ if ! dpkg -l | grep -q python3-venv; then
   sudo apt install -y python3-venv python3-pip
 fi
 
+# Make sure we have git
+if ! command -v git &> /dev/null; then
+  echo -e "${YELLOW}Git is required but not installed${NC}"
+  echo -e "${YELLOW}Installing git...${NC}"
+  sudo apt update
+  sudo apt install -y git
+fi
+
+# Make sure we have curl for nvm
+if ! command -v curl &> /dev/null; then
+  echo -e "${YELLOW}Curl is required but not installed${NC}"
+  echo -e "${YELLOW}Installing curl...${NC}"
+  sudo apt update
+  sudo apt install -y curl
+fi
+
 # Ensure virtual environment directory exists
 mkdir -p ~/.config/nvim/venv
 
@@ -2401,10 +2437,10 @@ echo -e "${BLUE}=== Installing Python provider for Neovim ===${NC}"
 
 # Configure Neovim to use the virtual environment
 mkdir -p ~/.config/nvim/after/plugin
-cat > ~/.config/nvim/after/plugin/python-provider.lua << EOF
+cat > ~/.config/nvim/after/plugin/python-provider.lua << 'EOFINNER'
 -- Configure Neovim Python provider to use virtual environment
 vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
-EOF
+EOFINNER
 
 # Install Node.js provider if nvm is available
 if [ -f "$HOME/.nvm/nvm.sh" ]; then
@@ -2418,18 +2454,38 @@ fi
 
 # Configure nvim-treesitter
 mkdir -p ~/.config/nvim/after/plugin
-cat > ~/.config/nvim/after/plugin/treesitter-config.lua << EOF
+cat > ~/.config/nvim/after/plugin/treesitter-config.lua << 'EOFINNER'
 -- Configure nvim-treesitter to install without prompts
 require('nvim-treesitter.configs').setup({
   auto_install = true,
   ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
   sync_install = false,
 })
-EOF
+EOFINNER
+
+# Make sure mason.nvim can install LSP servers
+echo -e "${BLUE}=== Ensuring Mason.nvim can install LSP servers ===${NC}"
+# Required for many LSP servers
+if ! command -v npm &> /dev/null; then
+  echo -e "${YELLOW}Installing nvm to manage Node.js${NC}"
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  nvm install --lts
+  echo -e "${GREEN}Node.js installed with nvm${NC}"
+fi
+
+# Make sure essential build tools are available for compiling
+sudo apt install -y build-essential
+
+echo -e "${BLUE}=== Syncing Lazy plugin manager ===${NC}"
+# Open Neovim briefly to install plugins and quit
+nvim --headless "+Lazy! sync" +qa
 
 echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
+echo -e "${GREEN}Rose Pine theme should be installed${NC}"
 echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
-EOF
+ENDOFFILE
 chmod +x "$SETUP_DIR/bin/fix-neovim.sh"
 check_error "Failed to create fix-neovim.sh script"
 
@@ -2440,8 +2496,9 @@ echo -e "  ${YELLOW}source ~/.bashrc${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
 echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
 echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
-echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
+echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s \$(which zsh)${NC}"
 echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide.md${NC}"
 echo -e "   and ${YELLOW}nvim ~/dev-env/docs/neovim-projects.md${NC} to learn about code navigation"
 echo -e "5. Check out the cheatsheet: ${YELLOW}nvim ~/dev-env/docs/dev-cheatsheet.md${NC}"
+echo -e "\n${PURPLE}Neovim has been configured with the beautiful Rose Pine theme!${NC}"
 echo -e "\n${GREEN}Happy coding!${NC}"
