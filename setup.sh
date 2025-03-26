@@ -77,10 +77,10 @@ if [ -n "$ZSH_VERSION" ]; then
   USING_ZSH=1
 fi
 
-SCRIPT_VERSION="0.2.0"
-print_title "Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
-echo -e "${GREEN}This script will set up a developer environment optimized for WSL Debian${NC}"
-echo -e "${GREEN}You can easily modify any part of this setup later${NC}"
+SCRIPT_VERSION="0.3.0"
+print_title "Beginner-Friendly WSL Development Environment Setup v$SCRIPT_VERSION"
+echo -e "${GREEN}This script will set up a complete development environment optimized for WSL Debian${NC}"
+echo -e "${GREEN}Perfect for beginners - everything you need to start coding with modern tools${NC}"
 
 # Create our workspace structure first - before any other operations
 print_header "Creating Workspace Structure"
@@ -957,6 +957,74 @@ editconfig() {
 
 # Add the editconfig function to your command palette
 alias ec='editconfig'
+
+# Create a new project with a standard structure
+newproject() {
+  if [ -z "$1" ]; then
+    echo "Usage: newproject <project-name> [<template>]"
+    echo "Available templates: node, python, web (default: basic)"
+    return 1
+  fi
+  
+  local project_name="$1"
+  local template="${2:-basic}"
+  local project_dir="$HOME/dev/$project_name"
+  
+  if [ -d "$project_dir" ]; then
+    echo "Error: Project directory $project_dir already exists"
+    return 1
+  fi
+  
+  mkdir -p "$project_dir"
+  cd "$project_dir" || return
+  
+  # Create basic structure
+  mkdir -p src docs tests
+  touch README.md
+  
+  # Create template-specific files
+  case "$template" in
+    node)
+      echo "Creating Node.js project: $project_name"
+      echo '{"name":"'$project_name'","version":"1.0.0","description":"","main":"index.js","scripts":{"test":"echo \"Error: no test specified\" && exit 1"},"keywords":[],"author":"","license":"ISC"}' > package.json
+      mkdir -p src/{controllers,models,routes}
+      touch src/index.js
+      touch .gitignore
+      echo -e "node_modules/\ndist/\n.env\n" > .gitignore
+      ;;
+      
+    python)
+      echo "Creating Python project: $project_name"
+      mkdir -p "$project_name"
+      touch "$project_name/__init__.py"
+      touch setup.py
+      echo -e "import setuptools\n\nsetuptools.setup(\n    name=\"$project_name\",\n    version=\"0.1.0\",\n    packages=setuptools.find_packages(),\n)" > setup.py
+      touch .gitignore
+      echo -e "__pycache__/\n*.py[cod]\n*$py.class\n.env\nvenv/\n.pytest_cache/\n" > .gitignore
+      ;;
+      
+    web)
+      echo "Creating web project: $project_name"
+      mkdir -p src/{css,js,assets}
+      touch src/index.html
+      touch src/css/style.css
+      touch src/js/main.js
+      echo -e "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>$project_name</title>\n    <link rel=\"stylesheet\" href=\"css/style.css\">\n</head>\n<body>\n    <h1>$project_name</h1>\n    \n    <script src=\"js/main.js\"></script>\n</body>\n</html>" > src/index.html
+      ;;
+      
+    *)
+      echo "Creating basic project: $project_name"
+      ;;
+  esac
+  
+  # Initialize git
+  git init
+  
+  echo "Project created at: $project_dir"
+  echo "To get started:"
+  echo "  cd $project_dir"
+  echo "  nvim ."
+}
 EOL
 check_error "Failed to create zsh configuration"
 
@@ -1026,10 +1094,25 @@ cat > "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" << 'EOL'
 #!/bin/bash
 # Optimize PATH in WSL to prioritize Linux binaries and improve performance
 
-# Clean PATH to remove unnecessary Windows paths
-clean_path=$(echo $PATH | tr ':' '\n' | grep -v "/mnt/" | tr '\n' ':' | sed 's/:$//')
+# Save original PATH temporarily
+original_path="$PATH"
 
-# Add only essential Windows paths (at the end)
+# Start with essential Linux paths
+clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Add user bin directories
+clean_path="$HOME/bin:$HOME/.local/bin:$clean_path"
+
+# Add Node.js from NVM if available
+if [ -d "$HOME/.nvm" ]; then
+  NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
+  if [ -n "$NVM_BIN" ]; then
+    clean_path="$NVM_BIN:$clean_path"
+  fi
+fi
+
+# Add only essential Windows paths at the end
+# This ensures Linux tools are prioritized over Windows versions
 clean_path="$clean_path:/mnt/c/Windows/System32"
 
 # Export the optimized PATH
@@ -1038,9 +1121,27 @@ export PATH="$clean_path"
 # Also unset any Windows variables that might cause issues
 unset PYTHONPATH
 unset CLASSPATH
+
+# Ensure we use the Linux version of common tools that might be duplicated
+# This explicitly overrides any PATH settings for critical commands
+alias neofetch='/usr/bin/neofetch'
+alias git='/usr/bin/git'
+alias python3='/usr/bin/python3'
+alias node="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node/ 2>/dev/null | sort -r | head -n 1)/bin/node 2>/dev/null || /usr/bin/node"
+alias npm="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node/ 2>/dev/null | sort -r | head -n 1)/bin/npm 2>/dev/null || /usr/bin/npm"
 EOL
 check_error "Failed to create wsl-path-fix.sh"
 chmod +x "$SETUP_DIR/configs/wsl/wsl-path-fix.sh"
+
+# Update the .bashrc neofetch to use the full path to ensure the Linux version is used
+if ! grep -q "neofetch" ~/.bashrc && grep -q "fastfetch" ~/.bashrc; then
+  sed -i 's/fastfetch/\/usr\/bin\/neofetch/g' ~/.bashrc
+  echo -e "${GREEN}Updated ~/.bashrc to use neofetch instead of fastfetch${NC}"
+elif ! grep -q "neofetch" ~/.bashrc && ! grep -q "fastfetch" ~/.bashrc; then
+  echo -e "\n# Run neofetch at startup (explicitly using Linux version)" >> ~/.bashrc
+  echo '/usr/bin/neofetch' >> ~/.bashrc
+  echo -e "${GREEN}Added neofetch to ~/.bashrc startup${NC}"
+fi
 
 # Windows open script
 cat > "$SETUP_DIR/configs/wsl/winopen" << 'EOL'
@@ -2411,6 +2512,17 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
+
+echo -e "${BLUE}========== Neovim Setup and Diagnostics ==========${NC}"
+echo -e "${CYAN}This script will set up Neovim for optimal performance and fix common issues${NC}"
+
+# Print some system information
+echo -e "${BLUE}=== System Information ===${NC}"
+echo -e "WSL Version: $(cat /proc/version | grep -i microsoft)"
+echo -e "Distro: $(lsb_release -d | cut -f2)"
+echo -e "Shell: $SHELL"
+echo -e "PATH: $PATH"
 
 # Clean up any existing treesitter temporary directories
 echo -e "${BLUE}=== Cleaning up any existing treesitter temporary directories ===${NC}"
@@ -2441,6 +2553,17 @@ if ! command -v curl &> /dev/null; then
   sudo apt install -y curl
 fi
 
+# Verify Neovim is installed and working
+echo -e "${BLUE}=== Checking Neovim Installation ===${NC}"
+if command -v nvim &> /dev/null; then
+  nvim_version=$(nvim --version | head -n1)
+  echo -e "${GREEN}Neovim is installed: ${nvim_version}${NC}"
+else
+  echo -e "${RED}Neovim does not appear to be installed or is not in your PATH${NC}"
+  echo -e "${YELLOW}This script assumes Neovim is already installed by the main setup script${NC}"
+  exit 1
+fi
+
 # Ensure virtual environment directory exists
 mkdir -p ~/.config/nvim/venv
 
@@ -2458,6 +2581,10 @@ mkdir -p ~/.config/nvim/after/plugin
 cat > ~/.config/nvim/after/plugin/python-provider.lua << 'EOFINNER'
 -- Configure Neovim Python provider to use virtual environment
 vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
+
+-- Add helpful diagnostic commands for beginners
+vim.api.nvim_create_user_command('CheckHealth', 'checkhealth', {})
+vim.api.nvim_create_user_command('FixPlugins', 'Lazy sync', {})
 EOFINNER
 
 # Install Node.js via NVM if needed
@@ -2468,6 +2595,12 @@ if [ ! -f "$HOME/.nvm/nvm.sh" ]; then
   [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
   nvm install --lts
   echo -e "${GREEN}Node.js installed with nvm${NC}"
+else
+  echo -e "${GREEN}NVM already installed${NC}"
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  echo -e "Node.js version: $(node -v 2>/dev/null || echo 'Not activated')"
+  echo -e "NPM version: $(npm -v 2>/dev/null || echo 'Not activated')"
 fi
 
 # Install Node.js provider for Neovim
@@ -2526,6 +2659,89 @@ vim.api.nvim_create_autocmd("VimEnter", {
   end,
   once = true,
 })
+
+-- Add helpful diagnostics command for beginners
+vim.api.nvim_create_user_command('ShowParsers', function()
+  local parsers = require('nvim-treesitter.info').installed_parsers()
+  local msg = "Installed parsers:\n"
+  for _, parser in ipairs(parsers) do
+    msg = msg .. "- " .. parser .. "\n"
+  end
+  vim.notify(msg, vim.log.levels.INFO)
+end, {})
+EOFINNER
+
+# Create helpful quick reference file for Neovim beginners
+mkdir -p ~/.config/nvim/after/plugin
+cat > ~/.config/nvim/after/plugin/beginner-help.lua << 'EOFINNER'
+-- Add beginner-friendly commands and key mappings
+
+-- Create a command to show beginner help
+vim.api.nvim_create_user_command('BeginnerHelp', function()
+  local help_text = [[
+## Neovim Quick Reference
+
+### Essential Commands
+- `:w` - Save file
+- `:q` - Quit
+- `:wq` - Save and quit
+- `:e filename` - Edit file
+- `:help keyword` - Get help
+
+### Navigation (Normal Mode)
+- `h`, `j`, `k`, `l` - Move cursor left, down, up, right
+- `w` - Move to next word
+- `b` - Move to previous word
+- `0` - Move to start of line
+- `$` - Move to end of line
+- `gg` - Go to top of file
+- `G` - Go to bottom of file
+
+### Editing
+- `i` - Enter insert mode
+- `a` - Append after cursor
+- `o` - Open new line below
+- `Esc` - Return to normal mode
+- `u` - Undo
+- `Ctrl+r` - Redo
+- `dd` - Delete line
+- `yy` - Copy line
+- `p` - Paste
+
+### Visual Mode
+- `v` - Enter visual mode
+- `V` - Enter visual line mode
+- `d` - Delete selection
+- `y` - Copy selection
+
+### Searching
+- `/pattern` - Search forward
+- `n` - Next match
+- `N` - Previous match
+
+### Custom Shortcuts
+- `Space+e` - Open file explorer
+- `Space+ff` - Find files
+- `Space+w` - Save file
+- `Space+q` - Quit
+- `Ctrl+h/j/k/l` - Navigate between windows
+
+Type `:q` to close this help.
+]]
+  
+  -- Create a new split with the help text
+  vim.cmd('new')
+  vim.cmd('setlocal buftype=nofile')
+  vim.cmd('setlocal bufhidden=wipe')
+  vim.cmd('setlocal filetype=markdown')
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(help_text, '\n'))
+  vim.cmd('setlocal readonly')
+  vim.cmd('setlocal nomodifiable')
+  vim.cmd('normal! gg')
+end, {})
+
+-- Add a key mapping for <F1> to show beginner help
+vim.keymap.set('n', '<F1>', ':BeginnerHelp<CR>', { silent = true, desc = 'Show beginner help' })
 EOFINNER
 
 # Make sure essential build tools are available for compiling
@@ -2543,6 +2759,9 @@ vim.cmd([[
     colorscheme default
   endtry
 ]])
+
+-- Add a simple statusline with helpful info for beginners
+vim.opt.statusline = " %f %m %r %=%l:%c %p%% "
 EOFINNER
 
 # Source NVM before trying to use Node
@@ -2554,9 +2773,86 @@ export NVM_DIR="$HOME/.nvm"  # Make sure NVM is available
 echo -e "${BLUE}Running Neovim to install plugins (this may take a minute)...${NC}"
 nvim --headless "+Lazy! sync" +qa
 
+# Create a beginner's startup page for Neovim
+mkdir -p ~/.config/nvim/plugin
+cat > ~/.config/nvim/plugin/startup-screen.lua << 'EOFINNER'
+-- Create a custom startup screen for beginners
+-- Only show when no arguments and not in a git repo
+vim.api.nvim_create_autocmd("VimEnter", {
+  callback = function()
+    if vim.fn.argc() == 0 and vim.fn.system("git rev-parse --is-inside-work-tree 2>/dev/null") ~= "true\n" then
+      -- Disable status, ruler, etc. for the start screen buffer
+      vim.opt_local.ruler = false
+      vim.opt_local.laststatus = 0
+      vim.opt_local.showcmd = false
+      
+      -- Create a new buffer
+      vim.cmd('enew')
+      vim.cmd('setlocal buftype=nofile bufhidden=wipe noswapfile')
+      
+      -- Set the content
+      local lines = {}
+      table.insert(lines, "")
+      table.insert(lines, "   █████   █████    █████████  █████                                                  ")
+      table.insert(lines, "  ░░███   ░░███   ███░░░░░███░░███                                                   ")
+      table.insert(lines, "   ░███    ░███  ░███    ░░░  ░███████   █████ ████ ████████                        ")
+      table.insert(lines, "   ░███    ░███  ░░█████████  ░███░░███ ░░███ ░███ ░░███░░███                       ")
+      table.insert(lines, "   ░░███   ███    ░░░░░░░░███ ░███ ░███  ░███ ░███  ░███ ░███                       ")
+      table.insert(lines, "    ░░░█████░     ███    ░███ ░███ ░███  ░███ ░███  ░███ ░███                       ")
+      table.insert(lines, "      ░░███      ░░█████████  ████ █████ ░░████████ ████ █████                      ")
+      table.insert(lines, "       ░░░        ░░░░░░░░░  ░░░░ ░░░░░   ░░░░░░░░ ░░░░ ░░░░                       ")
+      table.insert(lines, "                                                                                     ")
+      table.insert(lines, "        WSL Development Environment - Your journey begins here!                      ")
+      table.insert(lines, "")
+      table.insert(lines, "")
+      table.insert(lines, "        Press F1 for a quick reference guide")
+      table.insert(lines, "")
+      table.insert(lines, "        Beginner Actions:")
+      table.insert(lines, "")
+      table.insert(lines, "          n - Create a new project")
+      table.insert(lines, "          e - Open file explorer")
+      table.insert(lines, "          f - Find files in a project")
+      table.insert(lines, "          d - Browse documentation")
+      table.insert(lines, "          q - Quit")
+      table.insert(lines, "")
+      table.insert(lines, "")
+      table.insert(lines, "        💡 Tip: Great developers start by reading the docs!")
+      table.insert(lines, "")
+      
+      -- Set the contents
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+      
+      -- Make it non-modifiable
+      vim.cmd('setlocal nomodifiable nonumber norelativenumber')
+      
+      -- Add key mappings specific to this buffer
+      local opts = { silent = true, buffer = true }
+      vim.keymap.set('n', 'n', function()
+        vim.cmd('terminal bash -c "cd && if command -v newproject &>/dev/null; then newproject $(read -p \"Project name: \" name && echo $name) $(read -p \"Template [node/python/web/basic]: \" template && echo $template); else echo \"newproject command not found\"; fi"')
+      end, opts)
+      
+      vim.keymap.set('n', 'e', '<cmd>NvimTreeToggle<CR>', opts)
+      vim.keymap.set('n', 'f', '<cmd>Telescope find_files<CR>', opts)
+      vim.keymap.set('n', 'q', '<cmd>q<CR>', opts)
+      vim.keymap.set('n', 'd', function()
+        vim.cmd('terminal bash -c "cd ~/dev-env/docs && ls -1 *.md && read -p \"Enter guide name: \" guide && if [ -f \"$guide\" ] || [ -f \"$guide.md\" ]; then nvim \"${guide%.md}.md\"; else echo \"Guide not found\"; fi"')
+      end, opts)
+    end
+  end,
+  once = true,
+})
+EOFINNER
+
 echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
 echo -e "${GREEN}Rose Pine theme should be installed${NC}"
 echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
+
+echo -e "${BLUE}=== Beginner Tips ===${NC}"
+echo -e "${CYAN}• Press F1 inside Neovim for a quick reference guide${NC}"
+echo -e "${CYAN}• Create a new project with the 'newproject' command${NC}"
+echo -e "${CYAN}• Type 'nvim' without arguments to see the startup screen${NC}"
+echo -e "${CYAN}• Run ':BeginnerHelp' inside Neovim for a quick reference${NC}"
+echo -e "${CYAN}• Check out ~/dev-env/docs/beginners-guide.md for WSL development concepts${NC}"
 ENDOFFILE
 chmod +x "$SETUP_DIR/bin/fix-neovim.sh"
 check_error "Failed to create fix-neovim.sh script"
@@ -2570,6 +2866,11 @@ print_title "Initial Setup Complete!"
 echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
 echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
 echo -e "  ${YELLOW}source ~/.bashrc${NC}"
+echo -e "\n${BLUE}Beginner-Friendly Features:${NC}"
+echo -e "1. ${CYAN}Interactive startup screen${NC} - Just type ${YELLOW}nvim${NC} to see it"
+echo -e "2. ${CYAN}Press F1 in Neovim${NC} for a quick reference guide"
+echo -e "3. ${CYAN}Create new projects easily${NC} with ${YELLOW}newproject name template${NC}"
+echo -e "4. ${CYAN}Read the beginner's guide:${NC} ${YELLOW}nvim ~/dev-env/docs/beginners-guide.md${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
 echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
 echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
@@ -2578,4 +2879,143 @@ echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide
 echo -e "   and ${YELLOW}nvim ~/dev-env/docs/neovim-projects.md${NC} to learn about code navigation"
 echo -e "5. Check out the cheatsheet: ${YELLOW}nvim ~/dev-env/docs/dev-cheatsheet.md${NC}"
 echo -e "\n${PURPLE}Neovim has been configured with the beautiful Rose Pine theme!${NC}"
-echo -e "\n${GREEN}Happy coding!${NC}"
+echo -e "\n${GREEN}Happy learning and coding!${NC}"
+
+# Create a new guide for beginners explaining WSL development concepts
+cat > "$SETUP_DIR/docs/beginners-guide.md" << 'EOL'
+# Beginner's Guide to WSL Development
+
+This guide is designed to help you understand the basics of development in WSL (Windows Subsystem for Linux).
+
+## What is WSL?
+
+WSL (Windows Subsystem for Linux) lets you run a Linux environment directly on Windows, without needing a virtual machine or dual-boot setup. This gives you access to:
+
+- Linux command-line tools and utilities
+- A Linux filesystem
+- Programming languages and tools common in Linux development
+- All while keeping easy access to your Windows applications
+
+## Understanding the Two Filesystems
+
+One of the most important concepts to understand is that WSL has two separate filesystems:
+
+1. **Linux Filesystem**: 
+   - Located at `/home/username` in WSL
+   - Fast for Linux operations
+   - Where you should keep your code projects
+   
+2. **Windows Filesystem**: 
+   - Mounted at `/mnt/c`, `/mnt/d`, etc.
+   - Slower when accessed from WSL
+   - Useful for sharing files with Windows applications
+
+**Best Practice**: Keep your code in the Linux filesystem (your home directory) for best performance.
+
+## The Command Line Basics
+
+If you're new to Linux, here are some essential commands:
+
+- `ls` - List files in current directory
+- `cd directory` - Change to a different directory
+- `mkdir name` - Create a new directory
+- `touch filename` - Create a new empty file
+- `mv old new` - Move or rename a file
+- `cp source dest` - Copy a file
+- `rm file` - Delete a file
+- `cat file` - Display file contents
+- `man command` - Show manual for a command
+- `grep pattern file` - Search for text in files
+- `find . -name "*.txt"` - Find files matching a pattern
+
+## Development Workflow
+
+Here's a simple development workflow:
+
+1. Create a project directory: `mkdir ~/projects/myproject`
+2. Navigate to it: `cd ~/projects/myproject`
+3. Initialize git: `git init`
+4. Create or edit files: `nvim filename.js`
+5. Check status: `gs` (alias for `git status`)
+6. Add files to git: `ga .` (alias for `git add .`)
+7. Commit changes: `gc "Description of changes"` (alias for `git commit -m "..."`)
+8. Continue making changes and committing
+
+## Using the Integrated Tools
+
+Your setup includes several powerful tools:
+
+### Neovim
+- Modern text editor for coding
+- Launch with `nvim filename`
+- Has modes: Normal (Esc), Insert (i), Visual (v)
+- See `~/dev-env/docs/neovim-guide.md` for more
+
+### Tmux
+- Terminal multiplexer for managing multiple terminal windows
+- Start with `t` (alias for `tmux`)
+- Split screens, create tabs, detach and reattach sessions
+- See `~/dev-env/docs/tmux-guide.md` for more
+
+### Project Templates
+- Create new projects easily with `newproject`
+- Example: `newproject my-app node` creates a Node.js project
+- Available templates: `node`, `python`, `web`
+
+## WSL and Windows Integration
+
+We've included several commands to bridge Windows and WSL:
+
+- `winopen` - Open the current folder in Windows Explorer
+- `clip` - Copy text to Windows clipboard
+- `explorer.exe .` - Open Windows Explorer in the current directory
+
+## Customizing Your Environment
+
+As you become more comfortable, you can customize your environment:
+
+1. Edit configuration files with `ec` (select from menu)
+2. Apply changes by running `~/dev-env/update.sh`
+3. Add your own aliases or functions in `~/.zshrc`
+
+## Getting Help
+
+- Use `man [command]` to get help on Linux commands
+- Browse our documentation in `~/dev-env/docs/`
+- Search online with specific terms like "WSL" or "Linux"
+- Check out online tutorials for specific tools (Neovim, Git, etc.)
+
+## Common Issues and Solutions
+
+### Command Not Found
+- Ensure your PATH is properly set
+- Check if the package is installed
+- Verify correct spelling
+
+### File Permission Issues
+- Use `ls -la` to check permissions
+- Make scripts executable with `chmod +x script.sh`
+- Remember Linux is case-sensitive!
+
+### WSL-Windows Integration Issues
+- Ensure Windows paths are correctly formatted
+- Use `/mnt/c/...` for Windows C: drive
+- Use `wslpath` to convert between Windows and Linux paths
+
+### Node.js or Python Issues
+- Ensure correct version is active
+- For Node.js, check `node -v`
+- For Python, check `python3 --version`
+
+## Next Steps
+
+As you learn, consider:
+
+1. Exploring more Linux commands and tools
+2. Learning more about Git for version control
+3. Mastering Neovim for efficient text editing
+4. Building simple projects to apply your knowledge
+5. Exploring programming language-specific tools and frameworks
+
+Remember: Learning takes time. Start with small projects and gradually build up your skills!
+EOL
