@@ -1,3 +1,8 @@
+# Ultimate WSL Development Environment Setup Script
+
+Here's a complete, beginner-friendly script that combines the structure of your new script with the proper functionality from the old one, focusing on making Neovim work correctly:
+
+```bash
 #!/bin/bash
 
 # Ultimate WSL Development Environment Setup
@@ -35,7 +40,7 @@ print_header "Installing core dependencies"
 sudo apt update
 check_error "Failed to update package lists"
 
-sudo apt install -y curl wget git python3 python3-pip unzip
+sudo apt install -y curl wget git python3 python3-pip unzip build-essential
 check_error "Failed to install core dependencies"
 
 # Install Ansible (as recommended by ThePrimeagen for reproducible environments)
@@ -135,7 +140,7 @@ echo "Remember: You can customize any aspect by editing files in the configs/ di
 EOL
 chmod +x "$SETUP_DIR/update.sh"
 
-# Create editor roles
+# Create editor roles with FIXED Neovim installation
 mkdir -p "$SETUP_DIR/ansible/roles/editor/tasks"
 cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
 ---
@@ -147,6 +152,8 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
   with_items:
     - "~/.config/nvim"
     - "~/.config/nvim/lua/custom"
+    - "~/.local/bin"
+    - "~/tools"
 
 - name: Check if Neovim is installed
   command: which nvim
@@ -156,25 +163,45 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
 
 - name: Download and install Neovim (if not installed)
   block:
-    - name: Get latest Neovim release URL
-      uri:
-        url: https://api.github.com/repos/neovim/neovim/releases/latest
-        return_content: yes
-      register: github_response
+    - name: Download Neovim
+      get_url:
+        url: https://github.com/neovim/neovim/releases/download/v0.9.5/nvim-linux64.tar.gz
+        dest: ~/tools/nvim-linux64.tar.gz
       when: nvim_installed.rc != 0
 
-    - name: Extract download URL
-      set_fact:
-        download_url: "{{ github_response.json | json_query('assets[?contains(name, `linux64.tar.gz`)].browser_download_url') | first }}"
+    - name: Extract Neovim
+      unarchive:
+        src: ~/tools/nvim-linux64.tar.gz
+        dest: ~/tools/
+        remote_src: yes
       when: nvim_installed.rc != 0
 
-    - name: Download and extract Neovim
-      shell: |
-        curl -L {{ download_url }} | tar xzf - --strip-components=1 -C ~/.local/bin
-      args:
-        creates: "~/.local/bin/nvim"
+    - name: Create symbolic link to Neovim
+      file:
+        src: ~/tools/nvim-linux64/bin/nvim
+        dest: ~/.local/bin/nvim
+        state: link
+        force: yes
       when: nvim_installed.rc != 0
   when: nvim_installed.rc != 0
+
+- name: Check if Kickstart Neovim is already installed
+  stat:
+    path: ~/.config/nvim/.git
+  register: nvim_git
+
+- name: Check if Kickstart Neovim is the current config
+  shell: grep -q "kickstart.nvim" ~/.config/nvim/.git/config 2>/dev/null || echo "not_found"
+  register: kickstart_check
+  ignore_errors: true
+  changed_when: false
+  when: nvim_git.stat.exists
+
+- name: Backup existing Neovim config if not Kickstart
+  shell: mv ~/.config/nvim ~/.config/nvim.backup.$(date +%Y%m%d%H%M%S)
+  when: >
+    not nvim_git.stat.exists or
+    (kickstart_check.stdout is defined and kickstart_check.stdout == "not_found")
 
 - name: Install Kickstart Neovim configuration
   git:
@@ -182,12 +209,18 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
     dest: ~/.config/nvim
     depth: 1
     force: yes
-  when: nvim_custom_config.stat.exists == false
+  when: >
+    not nvim_git.stat.exists or
+    (kickstart_check.stdout is defined and kickstart_check.stdout == "not_found")
 
-- name: Create custom Neovim configuration
+- name: Copy custom Neovim configuration
   copy:
-    src: "{{ config_dir }}/nvim/custom/init.lua"
-    dest: ~/.config/nvim/lua/custom/init.lua
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    force: yes
+  with_items:
+    - { src: "configs/nvim/custom/init.lua", dest: "~/.config/nvim/lua/custom/init.lua" }
+  when: item.src is defined
 EOL
 
 # Create core-tools role
@@ -224,25 +257,30 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
       - bat              # Better cat with syntax highlighting
       - htop             # Interactive process viewer
       - stow             # Symlink farm manager for configs
+      - ninja-build      # Build system
+      - gettext          # Internationalization utilities
+      - cmake            # Cross-platform build system
+      - pkg-config       # Package compiler/linker metadata tool
     state: present
 
-- name: Create symbolic links for Debian-specific tool names
-  block:
-    - name: Link fd-find as fd
-      file:
-        src: /usr/bin/fdfind
-        dest: ~/.local/bin/fd
-        state: link
-        force: yes
-      when: ansible_facts.packages['fd-find'] is defined
+- name: Ensure local bin directory exists
+  file:
+    path: ~/.local/bin
+    state: directory
+    mode: '0755'
 
-    - name: Link batcat as bat
-      file:
-        src: /usr/bin/batcat 
-        dest: ~/.local/bin/bat
-        state: link
-        force: yes
-      when: ansible_facts.packages['bat'] is defined
+- name: Create symbolic links for Debian-specific tool names
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    state: link
+    force: yes
+  with_items:
+    - { src: "/usr/bin/fdfind", dest: "~/.local/bin/fd" }
+    - { src: "/usr/bin/batcat", dest: "~/.local/bin/bat" }
+  when: >
+    (item.src == "/usr/bin/fdfind" and lookup('file', '/usr/bin/fdfind', errors='ignore'))
+    or (item.src == "/usr/bin/batcat" and lookup('file', '/usr/bin/batcat', errors='ignore'))
 EOL
 
 # Create shell role
@@ -275,8 +313,8 @@ cat > "$SETUP_DIR/ansible/roles/shell/tasks/main.yml" << 'EOL'
     creates: ~/.local/bin/zoxide
 
 - name: Copy Zsh configuration
-  copy:
-    src: "{{ config_dir }}/zsh/zshrc"
+  template:
+    src: "{{ playbook_dir }}/../configs/zsh/zshrc"
     dest: ~/.zshrc
     backup: yes
 EOL
@@ -301,8 +339,8 @@ cat > "$SETUP_DIR/ansible/roles/tmux/tasks/main.yml" << 'EOL'
   when: tmux_installed.rc != 0
 
 - name: Copy tmux configuration
-  copy:
-    src: "{{ config_dir }}/tmux/tmux.conf"
+  template:
+    src: "{{ playbook_dir }}/../configs/tmux/tmux.conf"
     dest: ~/.tmux.conf
     backup: yes
 EOL
@@ -320,8 +358,8 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
     mode: '0755'
 
 - name: Copy WSL utility scripts
-  copy:
-    src: "{{ config_dir }}/wsl/{{ item }}"
+  template:
+    src: "{{ playbook_dir }}/../configs/wsl/{{ item }}"
     dest: ~/bin/{{ item }}
     mode: '0755'
   with_items:
@@ -329,14 +367,19 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
     - winopen
     - clip-copy
 
+- name: Get Windows username
+  shell: cmd.exe /c echo %USERNAME% | tr -d '\r\n'
+  register: windows_username
+  changed_when: false
+
 - name: Ensure .wslconfig exists in Windows home
-  copy:
-    src: "{{ config_dir }}/wsl/wslconfig"
-    dest: "/mnt/c/Users/{{ lookup('env', 'USER') }}/.wslconfig"
+  template:
+    src: "{{ playbook_dir }}/../configs/wsl/wslconfig"
+    dest: "/mnt/c/Users/{{ windows_username.stdout }}/.wslconfig"
     backup: yes
 EOL
 
-# NEW: Create git-config role
+# Create git-config role
 mkdir -p "$SETUP_DIR/ansible/roles/git-config/tasks"
 cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
 ---
@@ -391,7 +434,7 @@ cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
     - git config --global core.autocrlf input
 EOL
 
-# NEW: Create nodejs role
+# Create nodejs role
 mkdir -p "$SETUP_DIR/ansible/roles/nodejs/tasks"
 cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
 ---
@@ -668,6 +711,17 @@ vim.api.nvim_create_autocmd('FileType', {
   end
 })
 
+-- ================= COMMENTS =================
+-- This is a good place to add your own customizations as you learn
+-- -- For example:
+-- -- 1. Add custom plugin configurations
+-- -- 2. Define new keymappings for your workflow
+-- -- 3. Set up language-specific settings
+-- 
+-- -- Try adding a line below to see the effect:
+-- -- vim.cmd('colorscheme rosepine')
+EOL
+
 # Create WSL utilities
 mkdir -p "$SETUP_DIR/configs/wsl"
 
@@ -724,7 +778,7 @@ localhostForwarding=true
 kernelCommandLine=sysctl.vm.swappiness=10
 EOL
 
-# NEW: Create Git config template
+# Create Git config template
 cat > "$SETUP_DIR/configs/git/gitconfig" << 'EOL'
 # This is a template gitconfig that will be customized by the Ansible playbook
 # You can add additional Git configurations here
@@ -789,13 +843,70 @@ nvim ~/dev-env/configs/git/gitconfig
 ```
 EOL
 
-# ================= COMMENTS =================
-# This is a good place to add your own customizations as you learn
-# -- For example:
-# -- 1. Add custom plugin configurations
-# -- 2. Define new keymappings for your workflow
-# -- 3. Set up language-specific settings
-# 
-# -- Try adding a line below to see the effect:
-# -- vim.cmd('colorscheme rosepine')
-# EOL
+# Create a development cheatsheet
+cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
+# WSL Development Environment Cheatsheet
+
+## Common Commands
+
+### Navigation
+- `z [keyword]` - Jump to frequently accessed directory
+- `..` - Go up one directory
+- `...` - Go up two directories
+- `proj` - Browse and select projects in ~/dev
+
+### File Operations
+- `vim` or `v` - Open Neovim
+- `fd [pattern]` - Find files (better alternative to find)
+- `rg [pattern]` - Search within files (better grep)
+- `ll` - List files with details
+
+### Git
+- `gs` - Git status
+- `ga` - Git add
+- `gc "message"` - Git commit with message
+- `gp` - Git push
+- `gl` - Git pull
+- `glog` - Pretty git log with graph
+
+### Tmux
+- `t` - Start tmux
+- `ta [name]` - Attach to session
+- `tn [name]` - New session
+- `tl` - List sessions
+
+### WSL-Windows Integration
+- `winopen` - Open current directory in Windows Explorer
+- `clip` - Copy to Windows clipboard
+
+## Neovim Shortcuts
+- `<Space>` - Leader key for commands
+- `<Space>w` - Save file 
+- `<Space>q` - Quit
+- `<Space>e` - File explorer
+- `<Space>ff` - Find files
+- `<Space>fg` - Find text in files
+- `<C-h/j/k/l>` - Navigate between windows
+
+## Tmux Shortcuts
+- `Ctrl+a` - Prefix key
+- `Prefix |` - Split vertically
+- `Prefix -` - Split horizontally
+- `Prefix c` - New window
+- `Prefix h/j/k/l` - Navigate panes
+- `Prefix d` - Detach from session
+- `Prefix r` - Reload config
+EOL
+
+# Make the script executable
+chmod +x "$SETUP_DIR/update.sh"
+
+print_header "Initial Setup Complete!"
+echo -e "\nYour WSL developer environment is ready to use!"
+echo -e "Next steps:"
+echo "1. Run the update script to install everything: ~/dev-env/update.sh"
+echo "2. After installation completes, restart your terminal"
+echo "3. Consider changing your default shell to Zsh: chsh -s $(which zsh)"
+echo "4. Read the cheatsheet at: ~/dev-env/docs/dev-cheatsheet.md"
+echo -e "\nHappy coding!"
+```
