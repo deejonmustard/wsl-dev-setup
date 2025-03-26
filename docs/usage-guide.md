@@ -47,7 +47,6 @@ chmod +x setup.sh
 # Run the script
 ./setup.sh
 
-<<<<<<< HEAD
 or:
 
 curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
