@@ -20,7 +20,7 @@ check_error() {
     fi
   fi
 }
-SCRIPT_VERSION="0.1.0-beta.1"
+SCRIPT_VERSION="0.1.0-beta.2"
 print_header "Welcome to the Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
 echo "This script will set up a developer environment optimized for WSL Debian"
 echo "You can easily modify any part of this setup later"
@@ -43,7 +43,7 @@ check_error "Failed to update package lists"
 sudo apt install -y curl wget git python3 python3-pip unzip build-essential
 check_error "Failed to install core dependencies"
 
-# Install Neovim directly before setting up Ansible
+# Install Neovim properly
 print_header "Installing Neovim"
 mkdir -p ~/.local/bin
 mkdir -p ~/tools
@@ -52,7 +52,7 @@ mkdir -p ~/tools
 if ! command -v nvim &> /dev/null; then
   echo "Downloading and installing Neovim..."
   
-  # Get the latest stable Neovim release
+  # Download the latest stable Neovim release as tar.gz (more reliable than AppImage extraction)
   cd ~/tools
   wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
   check_error "Failed to download Neovim"
@@ -61,7 +61,7 @@ if ! command -v nvim &> /dev/null; then
   tar -xzf nvim-linux64.tar.gz
   check_error "Failed to extract Neovim"
   
-  # Create symbolic link
+  # Create symbolic link to ensure it's in PATH
   ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
   check_error "Failed to create Neovim symbolic link"
   
@@ -174,7 +174,7 @@ echo "Remember: You can customize any aspect by editing files in the configs/ di
 EOL
 chmod +x "$SETUP_DIR/update.sh"
 
-# Create editor roles - MODIFIED for proper Neovim setup
+# Create editor roles - Updated for proper Neovim recognition
 mkdir -p "$SETUP_DIR/ansible/roles/editor/tasks"
 cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
 ---
@@ -189,68 +189,52 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
     - "~/.local/bin"
     - "~/tools"
 
-- name: Check if Neovim is installed and in PATH
+- name: Check if Neovim exists in PATH
   shell: command -v nvim || echo "not_found"
-  register: nvim_check
+  register: nvim_in_path
   changed_when: false
 
-- name: Verify Neovim can be executed
-  shell: |
-    if command -v nvim &> /dev/null; then
-      echo "installed"
-    else
-      # Check if it's in ~/.local/bin but not in PATH
-      if [ -f "$HOME/.local/bin/nvim" ]; then
-        echo "found_in_local_bin"
-      else
-        echo "not_found"
-      fi
-    fi
-  register: nvim_exec_check
-  changed_when: false
-
-- name: Set PATH to include ~/.local/bin if Neovim is there but not in PATH
-  shell: export PATH="$HOME/.local/bin:$PATH"
-  when: nvim_exec_check.stdout == "found_in_local_bin"
+- name: Check if Neovim exists in local bin
+  stat:
+    path: "~/.local/bin/nvim"
+  register: nvim_in_local_bin
 
 - name: Install Neovim if not found
   block:
-    - name: Download Neovim stable release
+    - name: Download latest stable Neovim
       get_url:
         url: https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
         dest: ~/tools/nvim-linux64.tar.gz
-      when: nvim_exec_check.stdout == "not_found"
-
-    - name: Ensure no old Neovim installation exists
+      
+    - name: Remove old Neovim installation if exists
       file:
         path: ~/tools/nvim-linux64
         state: absent
-      when: nvim_exec_check.stdout == "not_found"
-
+      
     - name: Extract Neovim
-      shell: |
-        cd ~/tools
-        tar -xzf nvim-linux64.tar.gz
-      args:
-        creates: ~/tools/nvim-linux64/bin/nvim
-      when: nvim_exec_check.stdout == "not_found"
-
+      unarchive:
+        src: ~/tools/nvim-linux64.tar.gz
+        dest: ~/tools
+        remote_src: yes
+      
     - name: Create symbolic link to Neovim
       file:
         src: ~/tools/nvim-linux64/bin/nvim
         dest: ~/.local/bin/nvim
         state: link
         force: yes
-      when: nvim_exec_check.stdout == "not_found"
-
-    - name: Verify Neovim installation
-      shell: |
-        export PATH="$HOME/.local/bin:$PATH"
-        nvim --version
+      
+    - name: Add ~/.local/bin to PATH
+      lineinfile:
+        path: ~/.bashrc
+        line: 'export PATH="$HOME/.local/bin:$PATH"'
+        create: yes
+      
+    - name: Verify Neovim works
+      shell: ~/.local/bin/nvim --version
       register: nvim_verify
-      when: nvim_exec_check.stdout == "not_found"
       failed_when: nvim_verify.rc != 0
-  when: nvim_exec_check.stdout == "not_found"
+  when: nvim_in_path.stdout == "not_found" and not nvim_in_local_bin.stat.exists
 
 - name: Check if Kickstart Neovim is already installed
   stat:
@@ -715,7 +699,7 @@ cat > "$SETUP_DIR/configs/nvim/custom/init.lua" << 'EOL'
 vim.opt.relativenumber = true    -- Relative line numbers
 vim.opt.scrolloff = 8            -- Keep 8 lines visible when scrolling
 vim.opt.sidescrolloff = 8        -- Keep 8 columns left/right of cursor
-vim.opt.wrap = false             -- Don't wrap lines
+vim.opt.wrap = true              -- Wrap lines
 vim.opt.termguicolors = true     -- Full color support
 
 -- ================= EDITOR BEHAVIOR =================
