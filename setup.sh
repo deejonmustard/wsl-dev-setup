@@ -67,9 +67,15 @@ command_exists() {
 
 # Refresh PATH and available commands
 refresh_path() {
-  export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
+  export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
   hash -r
 }
+
+# Check if we're already using Zsh
+USING_ZSH=0
+if [ -n "$ZSH_VERSION" ]; then
+  USING_ZSH=1
+fi
 
 SCRIPT_VERSION="0.1.0"
 print_title "Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
@@ -85,6 +91,7 @@ ensure_dir ~/dev-env
 ensure_dir ~/.local/bin
 ensure_dir ~/bin
 ensure_dir ~/tools
+ensure_dir ~/dev
 
 # Create all config directories first to avoid "No such file or directory" errors
 ensure_dir ~/dev-env/ansible/roles
@@ -112,7 +119,7 @@ check_error "Failed to upgrade packages"
 # Ensure basic dependencies are installed
 print_header "Installing core dependencies"
 print_step "Installing essential packages..."
-sudo apt install -y curl wget git python3 python3-pip unzip build-essential
+sudo apt install -y curl wget git python3 python3-pip unzip build-essential neofetch file
 check_error "Failed to install core dependencies"
 
 # Make sure PATH includes our local bin directories
@@ -401,7 +408,7 @@ ensure_dir() {
 
 # Refresh PATH
 refresh_path() {
-  export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
+  export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
   hash -r
 }
 
@@ -438,6 +445,13 @@ cp "$SCRIPT_DIR/configs/wsl/clip-copy" ~/bin/
 chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
 check_error "Failed to update WSL utilities"
 
+# Update the PATH in current shell and .bashrc if not already set
+if ! grep -q 'PATH="$HOME/bin:$HOME/.local/bin:$PATH"' ~/.bashrc; then
+  echo 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
+  echo -e "${YELLOW}Added PATH update to ~/.bashrc${NC}"
+  echo -e "${YELLOW}Run 'source ~/.bashrc' to apply changes to current session${NC}"
+fi
+
 # Run our Ansible playbook
 echo -e "${BLUE}Updating your development environment...${NC}"
 ansible-playbook -i localhost, "$SCRIPT_DIR/ansible/setup.yml"
@@ -445,6 +459,10 @@ check_error "Ansible playbook execution failed"
 
 echo -e "${GREEN}Environment updated successfully!${NC}"
 echo -e "${YELLOW}Remember: You can customize any aspect by editing files in the configs/ directory${NC}"
+echo -e "\n${BLUE}To use the custom commands:${NC}"
+echo -e "  - Make sure to restart your terminal or run: source ~/.bashrc"
+echo -e "  - Then try commands like 'winopen', 'clip', etc."
+echo -e "  - Read the documentation at ~/dev-env/docs/ for more information"
 EOL
 check_error "Failed to create update script"
 chmod +x "$SETUP_DIR/update.sh"
@@ -470,6 +488,8 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
       - fzf              # Fuzzy finder
       - tmux             # Terminal multiplexer
       - zsh              # Better shell
+      - neofetch         # System info display tool
+      - file             # Determine file type
       
       # Development essentials
       - build-essential  # Compilation tools
@@ -496,6 +516,12 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
     state: directory
     mode: '0755'
 
+- name: Ensure ~/bin directory exists
+  file:
+    path: ~/bin
+    state: directory
+    mode: '0755'
+
 - name: Create symbolic links for Debian-specific tool names
   file:
     src: "{{ item.src }}"
@@ -508,6 +534,13 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
   when: >
     (item.src == "/usr/bin/fdfind" and lookup('file', '/usr/bin/fdfind', errors='ignore'))
     or (item.src == "/usr/bin/batcat" and lookup('file', '/usr/bin/batcat', errors='ignore'))
+
+- name: Update .bashrc to include local bin in PATH
+  lineinfile:
+    path: ~/.bashrc
+    line: 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"'
+    regexp: '^export PATH=.*\$HOME/bin.*\$PATH.*$'
+    state: present
 EOL
 check_error "Failed to create core-tools role"
 
@@ -611,49 +644,29 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create wsl-specific role"
 
-# Create git-config role with fixed paths
+# Create git-config role with simplified credential handling
 ensure_dir "$SETUP_DIR/ansible/roles/git-config/tasks"
 cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
 ---
 # Git configuration setup
 
-- name: Check if git user name is already configured
-  command: git config --global --get user.name
-  register: git_user_name
-  ignore_errors: true
-  changed_when: false
+- name: Ask for git username
+  pause:
+    prompt: "Enter your Git username (or press Enter to skip)"
+  register: git_username_input
 
-- name: Check if git user email is already configured
-  command: git config --global --get user.email
-  register: git_user_email
-  ignore_errors: true
-  changed_when: false
+- name: Ask for git email
+  pause:
+    prompt: "Enter your Git email (or press Enter to skip)"
+  register: git_email_input
 
-- name: Get user info for Git configuration
-  block:
-    - name: Ask for git username
-      pause:
-        prompt: "Enter your Git username"
-      register: git_username_input
-      when: git_user_name.rc != 0
+- name: Set git username
+  command: git config --global user.name "{{ git_username_input.user_input }}"
+  when: git_username_input.user_input != ""
 
-    - name: Ask for git email
-      pause:
-        prompt: "Enter your Git email"
-      register: git_email_input
-      when: git_user_email.rc != 0
-  when: git_user_name.rc != 0 or git_user_email.rc != 0
-
-- name: Configure Git
-  block:
-    - name: Set git username
-      command: git config --global user.name "{{ git_username_input.user_input }}"
-      when: git_user_name.rc != 0
-
-    - name: Set git email
-      command: git config --global user.email "{{ git_email_input.user_input }}"
-      when: git_user_email.rc != 0
-  when: git_user_name.rc != 0 or git_user_email.rc != 0
+- name: Set git email
+  command: git config --global user.email "{{ git_email_input.user_input }}"
+  when: git_email_input.user_input != ""
 
 - name: Configure helpful Git defaults
   command: "{{ item }}"
@@ -677,34 +690,27 @@ cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create git-config role"
 
-# Create nodejs role
+# Create nodejs role with simplified installation
 ensure_dir "$SETUP_DIR/ansible/roles/nodejs/tasks"
 cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
 ---
 # Node.js and npm setup
 
-- name: Check if Node.js is installed
-  command: which node
-  register: node_installed
-  ignore_errors: true
-  changed_when: false
+- name: Download nvm
+  shell: >
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
+  ignore_errors: yes
 
-- name: Install Node.js using nvm
-  block:
-    - name: Download nvm
-      shell: >
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
-      args:
-        creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
-
-    - name: Install latest LTS version of Node.js
-      shell: >
-        export NVM_DIR="$HOME/.nvm" && 
-        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
-        nvm install --lts
-      args:
-        executable: /bin/bash
-  when: node_installed.rc != 0
+- name: Install latest LTS version of Node.js
+  shell: >
+    export NVM_DIR="$HOME/.nvm" && 
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
+    nvm install --lts
+  args:
+    executable: /bin/bash
+  ignore_errors: yes
 
 - name: Install global npm packages
   shell: >
@@ -717,10 +723,11 @@ cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
     - prettier
   args:
     executable: /bin/bash
+  ignore_errors: yes
 EOL
 check_error "Failed to create nodejs role"
 
-# Create Zsh configuration file
+# Create Zsh configuration file with neofetch at startup
 cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
 # Path to Oh My Zsh installation
 export ZSH="$HOME/.oh-my-zsh"
@@ -741,7 +748,7 @@ source $ZSH/oh-my-zsh.sh
 
 # Environment setup
 export EDITOR='nvim'
-export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
+export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
 
 # NVM setup
 export NVM_DIR="$HOME/.nvm"
@@ -757,6 +764,9 @@ fi
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+
+# Run neofetch at startup
+neofetch
 
 # Aliases - focused on productivity
 alias vim='nvim'
@@ -1027,58 +1037,754 @@ ENV/
 EOL
 check_error "Failed to create global gitignore file"
 
+# Create enhanced documentation for beginners
 # Create a guide for editing configs
 ensure_dir "$SETUP_DIR/docs"
-cat > "$SETUP_DIR/docs/editing-configs.md" << 'EOL'
-# How to Edit Your Development Environment
+cat > "$SETUP_DIR/docs/getting-started.md" << 'EOL'
+# Getting Started with Your WSL Development Environment
 
-This guide shows you how to customize your WSL development environment using the terminal.
+This guide will help you get familiar with your new development environment.
 
-## The Quick Way: Using the `ec` Command
+## First Steps After Installation
 
-The easiest way to edit your configurations is using the built-in `ec` (edit config) command:
+1. **Update your environment**:
+   ```bash
+   ~/dev-env/update.sh
+   ```
 
-1. Open your terminal
-2. Type `ec` and press Enter
-3. Select the configuration you want to edit from the menu
-4. Make your changes and save
-5. Run `~/dev-env/update.sh` to apply your changes
+2. **Make the custom commands available**:
+   ```bash
+   source ~/.bashrc
+   ```
 
-## Manual Editing
+3. **Change your shell to Zsh** (optional but recommended):
+   ```bash
+   chsh -s $(which zsh)
+   ```
+   Then log out and back in.
 
-All configuration files are stored in the `~/dev-env/configs/` directory:
+## Essential Tools Overview
 
-### Editing Zsh Configuration
+### Neovim: Modern Text Editor
+
+Neovim is a powerful text editor. We've set up the "Kickstart" configuration which gives you modern features like:
+- File explorer
+- Code completion
+- Syntax highlighting
+- Git integration
+
+**Basic usage**:
 ```bash
-nvim ~/dev-env/configs/zsh/zshrc
+nvim file.txt  # Open a file
 ```
 
-### Editing Git Configuration
+Inside Neovim:
+- Press `i` to enter insert mode
+- Press `Esc` to go back to normal mode
+- Press `:w` to save
+- Press `:q` to quit
+
+Learn more: Type `:help` inside Neovim or run `nvim ~/dev-env/docs/neovim-guide.md`
+
+### Tmux: Terminal Multiplexer
+
+Tmux lets you split your terminal into multiple panes and windows, and keep sessions running even when you disconnect.
+
+**Basic usage**:
 ```bash
-nvim ~/dev-env/configs/git/gitconfig
+tmux              # Start a new session
+tmux ls           # List sessions
+tmux attach -t 0  # Reattach to session 0
 ```
 
-### Editing Neovim Configuration
+Inside Tmux:
+- Press `Ctrl+a` then `|` to split vertically
+- Press `Ctrl+a` then `-` to split horizontally
+- Press `Ctrl+a` then arrow keys to navigate panes
+- Press `Ctrl+a` then `d` to detach
+
+Learn more: Run `nvim ~/dev-env/docs/tmux-guide.md`
+
+### Zsh: Better Shell
+
+Zsh is a powerful shell with features like:
+- Better tab completion
+- Command highlighting
+- Plugin support
+
+**Useful aliases**:
+- `gs` - Git status
+- `ga` - Git add
+- `..` - Go up one directory
+- `...` - Go up two directories
+
+### WSL-specific Tools
+
+These tools help bridge Windows and Linux:
+
+- `winopen` - Open the current folder in Windows Explorer
+- `clip` - Copy text to Windows clipboard 
+
+Example usage:
 ```bash
-nvim ~/dev-env/configs/nvim/custom/init.lua
+# Copy output of a command to clipboard
+ls -la | clip
+
+# Open current directory in Windows Explorer
+winopen
 ```
 
-### Editing Tmux Configuration
+### Ansible: Environment Management
+
+Ansible is used to manage your development environment. You typically don't need to interact with it directly, but it powers the `update.sh` script.
+
+If you want to add new tools or configurations:
+1. Edit the files in `~/dev-env/ansible/`
+2. Run `~/dev-env/update.sh`
+
+## Troubleshooting
+
+### Command Not Found
+
+If you get "command not found" errors:
+
+1. Make sure your PATH includes the bin directories:
+   ```bash
+   echo 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+2. Check if the command exists:
+   ```bash
+   which <command-name>
+   ```
+
+3. Make sure the file is executable:
+   ```bash
+   chmod +x ~/bin/<command-name>
+   ```
+
+### Other Issues
+
+Check the logs in the terminal for error messages. Most errors include guidance on how to fix them.
+
+## Next Steps
+
+- Read the individual tool guides in the `~/dev-env/docs/` directory
+- Try customizing your configurations using the `ec` command
+- Explore the cheatsheet at `~/dev-env/docs/dev-cheatsheet.md`
+EOL
+check_error "Failed to create getting-started.md"
+
+# Create detailed guides for the requested tools
+cat > "$SETUP_DIR/docs/tmux-guide.md" << 'EOL'
+# Tmux Beginner's Guide
+
+Tmux is a terminal multiplexer that lets you:
+- Split your terminal into multiple panes
+- Create multiple windows (like tabs)
+- Detach from sessions and reconnect later
+- Share terminal sessions with others
+
+## Basic Concepts
+
+- **Session**: A collection of windows and panes
+- **Window**: Like a tab in your browser
+- **Pane**: A split within a window
+
+## Getting Started
+
+### Starting Tmux
+
 ```bash
-nvim ~/dev-env/configs/tmux/tmux.conf
+tmux           # Start a new session
+t              # Alias for tmux
+tn my-session  # Start a named session
 ```
 
-## Applying Changes
+### Common Prefix Key
 
-After making changes to any configuration file, run the update script:
+All tmux commands start with a prefix key:
+- In our setup, the prefix is `Ctrl+a` (press Ctrl and a at the same time)
+- After pressing the prefix, you can type a command
 
+### Basic Commands
+
+| Command | Description |
+|---------|-------------|
+| `prefix + c` | Create a new window |
+| `prefix + ,` | Rename the current window |
+| `prefix + n` | Go to the next window |
+| `prefix + p` | Go to the previous window |
+| `prefix + number` | Go to window by number |
+
+### Splitting Panes
+
+| Command | Description |
+|---------|-------------|
+| `prefix + |` | Split pane vertically |
+| `prefix + -` | Split pane horizontally |
+| `prefix + arrow key` | Navigate between panes |
+| `prefix + z` | Zoom in/out of current pane |
+
+### Session Management
+
+| Command | Description |
+|---------|-------------|
+| `prefix + d` | Detach from session |
+| `tmux ls` or `tl` | List sessions |
+| `tmux attach -t 0` or `ta 0` | Reattach to session 0 |
+| `prefix + S` | Create a new session |
+| `prefix + K` | Kill current session |
+
+## Copy Mode
+
+Tmux has a special mode for scrolling and copying text:
+
+1. Enter copy mode: `prefix + [`
+2. Navigate with arrow keys or vim bindings
+3. Start selection: `v` (press v while in copy mode)
+4. Copy selection: `y` (press y while selection is active)
+5. Paste: `prefix + ]`
+
+## Customizing Tmux
+
+The configuration file is at `~/dev-env/configs/tmux/tmux.conf`.
+
+To edit it:
+```bash
+ec
+# Then select "tmux" from the menu
+```
+
+After editing, run:
 ```bash
 ~/dev-env/update.sh
 ```
 
-This will copy your configurations to the appropriate locations and run the Ansible playbooks.
+## Practical Workflow Example
+
+1. Start a new session: `tmux`
+2. Create a window for editing: `prefix + c`
+3. Split the window for running tests: `prefix + -`
+4. Navigate to the bottom pane: `prefix + down`
+5. Run a long process: `npm test`
+6. Detach from the session: `prefix + d`
+7. Come back later: `tmux attach`
+
+## Tips and Tricks
+
+- Use `prefix + ?` to see all key bindings
+- Use mouse mode (enabled by default in our config)
+- Use `prefix + space` to cycle through different pane layouts
+
+## Getting Help
+
+- Type `man tmux` for the manual
+- Visit [Tmux Cheat Sheet](https://tmuxcheatsheet.com/)
 EOL
-check_error "Failed to create editing-configs.md"
+check_error "Failed to create tmux-guide.md"
+
+cat > "$SETUP_DIR/docs/zsh-guide.md" << 'EOL'
+# Zsh Beginner's Guide
+
+Zsh is a powerful shell with features beyond what's available in Bash.
+
+## Why Use Zsh?
+
+- Better tab completion
+- Spelling correction
+- Better history management
+- Plugin support through Oh My Zsh
+- More customizable
+
+## Getting Started
+
+### Switching to Zsh
+
+We've installed Zsh for you. To make it your default shell:
+
+```bash
+chsh -s $(which zsh)
+```
+
+Then log out and back in.
+
+### Oh My Zsh
+
+Oh My Zsh is a framework for managing your Zsh configuration. It includes:
+
+- Themes for customizing your prompt
+- Plugins for additional functionality
+- Aliases for common commands
+
+## Basic Features
+
+### Smart Tab Completion
+
+Zsh has context-aware tab completion:
+
+```bash
+cd /h[TAB]           # Completes to /home/
+git ch[TAB]          # Shows git checkout, cherry-pick, etc.
+kill [TAB]           # Shows list of processes
+```
+
+### Directory Navigation
+
+Zsh makes directory navigation easier:
+
+```bash
+..    # Move up one directory (alias)
+...   # Move up two directories (alias)
+cd -  # Go to previous directory
+```
+
+You also have zoxide installed, which remembers your most used directories:
+
+```bash
+z keyword   # Jump to most used directory matching keyword
+```
+
+### History Features
+
+Better history management:
+
+```bash
+history               # Show command history
+!42                   # Run command #42 from history
+!-2                   # Run second to last command 
+!string               # Run the last command starting with "string"
+Ctrl+r                # Search history (type to search)
+```
+
+## Useful Plugins (Already Installed)
+
+Our setup includes these plugins:
+
+### Git Plugin
+- `gs` - Git status
+- `ga` - Git add
+- `gc "message"` - Git commit with message
+- `gp` - Git push
+- `gl` - Git pull
+
+### Autosuggestions
+As you type, you'll see suggestions from your history in gray.
+- Press right arrow to accept the suggestion
+
+### Syntax Highlighting
+Commands will be colored to indicate:
+- Green: Valid command
+- Red: Invalid command
+- Yellow: Valid but potentially dangerous
+
+## Customizing Your Zsh
+
+To edit your Zsh configuration:
+
+```bash
+ec
+# Then select "zsh" from the menu
+```
+
+After editing, run:
+```bash
+~/dev-env/update.sh
+```
+
+## Common Customizations
+
+Add an alias:
+```bash
+alias mycommand='long command with options'
+```
+
+Add a function:
+```bash
+myfunction() {
+  echo "Hello, $1!"
+}
+```
+
+Change your prompt theme (in ~/.zshrc):
+```bash
+ZSH_THEME="robbyrussell"  # Change to any theme in ~/.oh-my-zsh/themes
+```
+
+## Getting Help
+
+- Type `man zsh` for the manual
+- Visit [Oh My Zsh](https://ohmyz.sh/) official website
+- Use `ec` to explore the Zsh configuration
+EOL
+check_error "Failed to create zsh-guide.md"
+
+cat > "$SETUP_DIR/docs/ansible-guide.md" << 'EOL'
+# Ansible Beginner's Guide
+
+Ansible is an automation tool that we use to manage your development environment.
+
+## What is Ansible?
+
+- Automation tool for configuring systems
+- Uses YAML files to describe desired state
+- Doesn't require special software on managed systems
+- Executes tasks in order
+
+## How We Use Ansible
+
+In this environment:
+- Ansible installs and configures your dev tools
+- It's called by the `update.sh` script
+- You rarely need to run Ansible directly
+
+## Basic Structure
+
+Our Ansible setup is organized like this:
+
+- `ansible/setup.yml` - The main playbook
+- `ansible/roles/` - Contains roles for different tools
+  - `core-tools/` - Basic development tools
+  - `shell/` - Zsh setup 
+  - `tmux/` - Tmux configuration
+  - etc.
+
+## Adding a New Tool
+
+If you want to install a new tool across your environments:
+
+1. Edit the appropriate role or create a new one
+2. Run `~/dev-env/update.sh`
+
+Example: Adding a new package to core-tools:
+
+1. Edit `~/dev-env/ansible/roles/core-tools/tasks/main.yml`
+2. Find the "Install essential development packages" task
+3. Add your package to the list
+4. Run `~/dev-env/update.sh`
+
+## Creating a New Role
+
+If you want to add a completely new tool:
+
+1. Create a new role directory:
+   ```bash
+   mkdir -p ~/dev-env/ansible/roles/my-new-tool/tasks
+   ```
+
+2. Create a main.yml file:
+   ```bash
+   nvim ~/dev-env/ansible/roles/my-new-tool/tasks/main.yml
+   ```
+
+3. Add your tasks:
+   ```yaml
+   ---
+   - name: Install my new tool
+     become: true
+     apt:
+       name: my-new-tool
+       state: present
+   
+   - name: Configure my new tool
+     template:
+       src: "{{ playbook_dir }}/../configs/my-new-tool/config"
+       dest: ~/.config/my-new-tool/config
+       mode: '0644'
+   ```
+
+4. Add the role to the main playbook by editing `~/dev-env/ansible/setup.yml`
+
+5. Run `~/dev-env/update.sh`
+
+## Common Ansible Tasks
+
+### Installing Packages
+
+```yaml
+- name: Install packages
+  become: true
+  apt:
+    name:
+      - package1
+      - package2
+    state: present
+```
+
+### Creating Files
+
+```yaml
+- name: Create a configuration file
+  copy:
+    src: "{{ playbook_dir }}/../configs/tool/config"
+    dest: ~/.config/tool/config
+    mode: '0644'
+```
+
+### Running Commands
+
+```yaml
+- name: Run a command
+  command: echo "Hello World"
+  register: command_output
+```
+
+## Getting Help
+
+- For our custom setup, check the existing roles for examples
+- Visit [Ansible Documentation](https://docs.ansible.com/)
+- Run `ansible-doc module_name` for help on a specific module
+EOL
+check_error "Failed to create ansible-guide.md"
+
+cat > "$SETUP_DIR/docs/neovim-guide.md" << 'EOL'
+# Neovim Beginner's Guide
+
+Neovim is a powerful, extensible text editor based on Vim. We've set up a modern configuration using Kickstart.nvim.
+
+## Basic Concepts
+
+Neovim has different modes:
+- **Normal mode**: For navigation and commands (default)
+- **Insert mode**: For typing text
+- **Visual mode**: For selecting text
+- **Command mode**: For entering commands with `:` prefix
+
+## Getting Started
+
+### Opening Files
+
+```bash
+nvim file.txt     # Open a file
+nvim dir/         # Open a directory
+nvim file1 file2  # Open multiple files
+```
+
+### Basic Navigation (Normal Mode)
+
+- **h, j, k, l**: Move left, down, up, right
+- **w**: Move to next word
+- **b**: Move to beginning of word
+- **0**: Move to beginning of line
+- **$**: Move to end of line
+- **gg**: Go to first line
+- **G**: Go to last line
+- **Ctrl+f**: Page down
+- **Ctrl+b**: Page up
+
+### Editing Text
+
+- **i**: Enter insert mode at cursor
+- **a**: Enter insert mode after cursor
+- **o**: Enter insert mode on new line below
+- **O**: Enter insert mode on new line above
+- **Esc**: Return to normal mode
+- **u**: Undo
+- **Ctrl+r**: Redo
+
+### Saving and Quitting
+
+- **:w**: Save file
+- **:q**: Quit (if no changes)
+- **:wq** or **:x**: Save and quit
+- **:q!**: Quit without saving
+- **Space+w**: Quick save (custom mapping)
+- **Space+q**: Quick quit (custom mapping)
+
+## Kickstart Features
+
+Our Neovim setup includes many modern features:
+
+### File Navigation
+
+- **Space+e**: Open file explorer
+- **Space+ff**: Find files
+- **Space+fg**: Search within files
+- **Space+fb**: Browse open buffers
+- **Space+fr**: Recently opened files
+
+### Code Intelligence
+
+- **Tab**: Autocomplete suggestion
+- **gd**: Go to definition
+- **gr**: Go to references
+- **K**: Show documentation
+- **Space+ca**: Show code actions
+- **Space+rn**: Rename symbol
+
+### Terminal Integration
+
+- **:T**: Open terminal in split (custom command)
+
+### Window Management
+
+- **Ctrl+h/j/k/l**: Navigate between windows
+- **:split** or **:sp**: Horizontal split
+- **:vsplit** or **:vs**: Vertical split
+- **Ctrl+w+o**: Close all windows except current
+
+## Customizing Neovim
+
+Your custom Neovim configuration is in `~/.config/nvim/lua/custom/init.lua`.
+
+To edit it:
+```bash
+ec
+# Then select "nvim" from the menu
+```
+
+After editing, run:
+```bash
+~/dev-env/update.sh
+```
+
+## Learning Path
+
+1. Start with basic navigation and editing
+2. Learn about visual mode for text selection
+3. Explore the file finder and code navigation
+4. Try out code completion and LSP features
+
+## Practical Tips
+
+- Use **:Tutor** to start the interactive tutorial
+- Embrace normal mode for navigation
+- Learn a few commands at a time
+- Use the mouse (it's enabled)
+
+## Getting Help
+
+- Type `:help keyword` for built-in documentation
+- Check [Neovim Documentation](https://neovim.io/doc/)
+- Visit [Kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) for more about our setup
+EOL
+check_error "Failed to create neovim-guide.md"
+
+cat > "$SETUP_DIR/docs/wsl-guide.md" << 'EOL'
+# WSL Integration Guide
+
+This guide covers the WSL-specific tools and integrations in your development environment.
+
+## Custom Commands
+
+We've included several commands to make WSL/Windows integration smoother:
+
+### winopen
+
+Opens the current or specified directory in Windows Explorer:
+
+```bash
+winopen                  # Open current directory
+winopen ~/Documents      # Open Documents folder
+```
+
+### clip-copy
+
+Copies text to the Windows clipboard:
+
+```bash
+echo "Hello World" | clip     # Pipe output to clipboard
+clip "Text to clipboard"      # Direct text to clipboard
+cat file.txt | clip           # Copy file contents to clipboard
+```
+
+### wsl-path-fix.sh
+
+This script optimizes your PATH to prioritize Linux binaries:
+
+```bash
+source ~/bin/wsl-path-fix.sh  # Run manually if needed
+```
+
+It's automatically included in your .zshrc
+
+## Accessing Windows Files
+
+Windows drives are mounted at `/mnt/c`, `/mnt/d`, etc.
+
+```bash
+cd /mnt/c/Users/YourUsername/Documents
+```
+
+## Accessing Linux Files from Windows
+
+You can access your Linux files from Windows Explorer:
+
+1. Open File Explorer in Windows
+2. In the address bar, type: `\\wsl$\Debian` (or your distro name)
+3. Navigate to your home folder
+
+## Running Windows Programs
+
+You can run Windows programs directly from the WSL terminal:
+
+```bash
+explorer.exe .                   # Open current folder in Explorer
+cmd.exe /c echo Hello           # Run a cmd command
+powershell.exe Get-Date         # Run a PowerShell command
+notepad.exe file.txt            # Open file in Notepad
+code .                          # Open VS Code (if installed)
+```
+
+## WSL Performance Tips
+
+1. Keep projects in the Linux filesystem for better performance
+2. Avoid heavy I/O operations across the filesystem boundary
+3. Use `wsl-path-fix.sh` to optimize your PATH
+4. Consider using Windows Terminal for better experience
+
+## WSL Resource Configuration
+
+We've set up a `.wslconfig` file in your Windows home directory with optimal settings:
+
+```
+[wsl2]
+memory=6GB
+processors=4
+swap=2GB
+localhostForwarding=true
+```
+
+You can adjust these settings by editing:
+```bash
+nvim ~/dev-env/configs/wsl/wslconfig
+```
+
+Then run:
+```bash
+~/dev-env/update.sh
+```
+
+## Troubleshooting
+
+### Command Not Found
+
+If WSL commands aren't found:
+
+1. Make sure ~/bin is in your PATH:
+   ```bash
+   echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+2. Verify the commands exist:
+   ```bash
+   ls -la ~/bin
+   ```
+
+3. Make sure they're executable:
+   ```bash
+   chmod +x ~/bin/winopen ~/bin/clip-copy ~/bin/wsl-path-fix.sh
+   ```
+
+### Other WSL Issues
+
+- For slow startup: Try `wsl --shutdown` from PowerShell, then restart
+- For networking issues: Restart the WSL service from PowerShell: `Restart-Service LxssManager`
+- For integration problems: Make sure Windows interoperability is enabled: `wsl.exe --set-default-version 2`
+EOL
+check_error "Failed to create wsl-guide.md"
 
 # Create a development cheatsheet
 cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
@@ -1097,6 +1803,7 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 - `fd [pattern]` - Find files (better alternative to find)
 - `rg [pattern]` - Search within files (better grep)
 - `ll` - List files with details
+- `file [filename]` - Determine file type
 
 ### Git
 - `gs` - Git status
@@ -1115,6 +1822,7 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 ### WSL-Windows Integration
 - `winopen` - Open current directory in Windows Explorer
 - `clip` - Copy to Windows clipboard
+- `explorer.exe .` - Open current directory in Windows Explorer
 
 ## Neovim Shortcuts
 - `<Space>` - Leader key for commands
@@ -1133,8 +1841,30 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 - `Prefix h/j/k/l` - Navigate panes
 - `Prefix d` - Detach from session
 - `Prefix r` - Reload config
+
+## Environment Management
+- `~/dev-env/update.sh` - Update your environment
+- `ec` - Edit your configurations interactively
+- `neofetch` - Display system information
+
+## Getting Help
+- `man [command]` - Show manual for command
+- `[command] --help` - Show help for command
+- `nvim ~/dev-env/docs/[tool]-guide.md` - Open guide for specific tool
 EOL
 check_error "Failed to create dev-cheatsheet.md"
+
+# Add Bash profile to run neofetch at startup (even before Zsh switch)
+if ! grep -q "neofetch" ~/.bashrc; then
+  echo -e "\n# Run neofetch at startup\nneofetch" >> ~/.bashrc
+  echo -e "${GREEN}Added neofetch to ~/.bashrc startup${NC}"
+fi
+
+# Also add PATH to .bashrc (if not already there) to ensure commands are available without Zsh
+if ! grep -q 'PATH="$HOME/bin:$HOME/.local/bin:$PATH"' ~/.bashrc; then
+  echo -e '\n# Add ~/bin and ~/.local/bin to PATH\nexport PATH="$HOME/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
+  echo -e "${GREEN}Added PATH update to ~/.bashrc${NC}"
+fi
 
 # Make scripts in ~/bin executable immediately
 cp "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" ~/bin/
@@ -1143,11 +1873,16 @@ cp "$SETUP_DIR/configs/wsl/clip-copy" ~/bin/
 chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
 check_error "Failed to copy and make WSL utilities executable"
 
+# Let's source .bashrc to add PATH immediately in this session
+source ~/.bashrc
+
 print_title "Initial Setup Complete!"
 echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
+echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
+echo -e "  ${YELLOW}source ~/.bashrc${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
 echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
-echo -e "2. After installation completes, restart your terminal"
+echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
 echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
-echo -e "4. Read the cheatsheet at: ${YELLOW}~/dev-env/docs/dev-cheatsheet.md${NC}"
+echo -e "4. Explore the tool guides in the docs directory: ${YELLOW}ls ~/dev-env/docs/${NC}"
 echo -e "\n${GREEN}Happy coding!${NC}"
