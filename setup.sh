@@ -2366,7 +2366,7 @@ echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
 echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
 echo -e "  ${YELLOW}source ~/.bashrc${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
-echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env
+echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env"
 echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
 echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
 echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide.md${NC}"
