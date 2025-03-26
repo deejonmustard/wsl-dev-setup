@@ -31,7 +31,7 @@ To add a new development tool:
 1. Edit the appropriate Ansible role:
    ```bash
    nvim ~/dev-env/ansible/roles/core-tools/tasks/main.yml
-
+   ```
 
 ### Key Improvements
 
