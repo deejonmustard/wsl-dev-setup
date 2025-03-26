@@ -98,4 +98,3 @@ Once the initial setup is complete, run the update script as prompted:
 ```bash
 ~/dev-env/update.sh
 ```
->>>>>>> 0f432c46c79813c7e91b2047e2537d44dd101865
