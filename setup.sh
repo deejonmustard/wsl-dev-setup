@@ -978,8 +978,4 @@ echo "1. Run the update script to install everything: ~/dev-env/update.sh"
 echo "2. After installation completes, restart your terminal"
 echo "3. Consider changing your default shell to Zsh: chsh -s $(which zsh)"
 echo "4. Read the cheatsheet at: ~/dev-env/docs/dev-cheatsheet.md"
-<<<<<<< HEAD
 echo -e "\nHappy coding!"
-=======
-echo -e "\nHappy coding!"
->>>>>>> 0f432c46c79813c7e91b2047e2537d44dd101865
