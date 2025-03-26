@@ -589,6 +589,7 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
       - wget             # Download files
       - unzip            # Extract archives
       - python3-pip      # Python package manager
+      - nodejs           # Node.js for language servers
       
       # Additional useful tools
       - jq               # JSON processor
@@ -600,6 +601,13 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
       - cmake            # Cross-platform build system
       - pkg-config       # Package compiler/linker metadata tool
     state: present
+
+- name: Try to install tree-sitter executable
+  become: true
+  apt:
+    name: tree-sitter
+    state: present
+  ignore_errors: yes
 
 - name: Ensure local bin directory exists
   file:
@@ -841,10 +849,15 @@ source $ZSH/oh-my-zsh.sh
 export EDITOR='nvim'
 export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
 
-# NVM setup
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+# NVM setup - using our custom script for consistency
+if [ -f "$HOME/dev-env/bin/nvm-init.sh" ]; then
+  source "$HOME/dev-env/bin/nvm-init.sh"
+else
+  # Fallback to direct NVM setup if the script doesn't exist yet
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+fi
 
 # Initialize zoxide (smart cd command)
 if command -v zoxide >/dev/null; then
@@ -2399,6 +2412,11 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 
+# Clean up any existing treesitter temporary directories
+echo -e "${BLUE}=== Cleaning up any existing treesitter temporary directories ===${NC}"
+rm -rf tree-sitter-*-tmp
+rm -rf $HOME/.local/share/nvim/lazy/nvim-treesitter/parser/tree-sitter-*-tmp
+
 # Check if python3-venv is installed
 if ! dpkg -l | grep -q python3-venv; then
   echo -e "${YELLOW}Python3-venv package is required but not installed${NC}"
@@ -2442,17 +2460,55 @@ cat > ~/.config/nvim/after/plugin/python-provider.lua << 'EOFINNER'
 vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
 EOFINNER
 
-# Install Node.js provider if nvm is available
-if [ -f "$HOME/.nvm/nvm.sh" ]; then
-  echo -e "${BLUE}=== Installing Node.js provider for Neovim ===${NC}"
+# Install Node.js via NVM if needed
+if [ ! -f "$HOME/.nvm/nvm.sh" ]; then
+  echo -e "${BLUE}=== Installing nvm and Node.js ===${NC}"
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
   export NVM_DIR="$HOME/.nvm"
   [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-  npm install -g neovim
-else
-  echo -e "${YELLOW}NVM not found, skipping Node.js provider installation${NC}"
+  nvm install --lts
+  echo -e "${GREEN}Node.js installed with nvm${NC}"
 fi
 
-# Configure nvim-treesitter
+# Install Node.js provider for Neovim
+echo -e "${BLUE}=== Installing Node.js provider for Neovim ===${NC}"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+npm install -g neovim
+
+# Create the NVM init script that will be sourced by shells
+mkdir -p "$HOME/dev-env/bin"
+cat > "$HOME/dev-env/bin/nvm-init.sh" << 'EOFINNER'
+#!/bin/bash
+# Source NVM to make Node.js available
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+# Make NVM Node.js take precedence over system Node.js
+if [ -d "$NVM_DIR/versions/node" ]; then
+  # Find the latest installed LTS version
+  NODE_VERSION=$(find "$NVM_DIR/versions/node" -maxdepth 1 -type d | sort -Vr | head -n 1)
+  if [ -n "$NODE_VERSION" ]; then
+    export PATH="$NODE_VERSION/bin:$PATH"
+  fi
+fi
+EOFINNER
+chmod +x "$HOME/dev-env/bin/nvm-init.sh"
+
+# Add to bashrc if not already there
+if ! grep -q 'source $HOME/dev-env/bin/nvm-init.sh' "$HOME/.bashrc"; then
+  echo '# Initialize NVM for Node.js' >> "$HOME/.bashrc"
+  echo 'source $HOME/dev-env/bin/nvm-init.sh' >> "$HOME/.bashrc"
+fi
+
+# Make Node.js available to Neovim by creating an init file that sources NVM
+mkdir -p ~/.config/nvim/plugin
+cat > ~/.config/nvim/plugin/node-provider.vim << 'EOFINNER'
+" Configure Node.js provider to use NVM-installed Node
+let $NVM_DIR = expand("$HOME/.nvm")
+let $PATH = $NVM_DIR . "/versions/node/*/bin:" . $PATH
+EOFINNER
+
+# Configure nvim-treesitter to install without prompts
 mkdir -p ~/.config/nvim/after/plugin
 cat > ~/.config/nvim/after/plugin/treesitter-config.lua << 'EOFINNER'
 -- Configure nvim-treesitter to install without prompts
@@ -2461,25 +2517,41 @@ require('nvim-treesitter.configs').setup({
   ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
   sync_install = false,
 })
-EOFINNER
 
-# Make sure mason.nvim can install LSP servers
-echo -e "${BLUE}=== Ensuring Mason.nvim can install LSP servers ===${NC}"
-# Required for many LSP servers
-if ! command -v npm &> /dev/null; then
-  echo -e "${YELLOW}Installing nvm to manage Node.js${NC}"
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
-  export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-  nvm install --lts
-  echo -e "${GREEN}Node.js installed with nvm${NC}"
-fi
+-- Fix for tree-sitter installation issues
+vim.api.nvim_create_autocmd("VimEnter", {
+  callback = function()
+    -- Clean up any existing temporary directories
+    vim.fn.system("rm -rf " .. vim.fn.getcwd() .. "/tree-sitter-*-tmp")
+  end,
+  once = true,
+})
+EOFINNER
 
 # Make sure essential build tools are available for compiling
 sudo apt install -y build-essential
 
 echo -e "${BLUE}=== Syncing Lazy plugin manager ===${NC}"
+# Set up the RosePine theme
+mkdir -p ~/.config/nvim/after/plugin
+cat > ~/.config/nvim/after/plugin/theme.lua << 'EOFINNER'
+-- Ensure the Rose Pine theme is set
+vim.cmd([[
+  try
+    colorscheme rose-pine
+  catch
+    colorscheme default
+  endtry
+]])
+EOFINNER
+
+# Source NVM before trying to use Node
+source "$HOME/dev-env/bin/nvm-init.sh"
+
 # Open Neovim briefly to install plugins and quit
+export NVM_DIR="$HOME/.nvm"  # Make sure NVM is available
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+echo -e "${BLUE}Running Neovim to install plugins (this may take a minute)...${NC}"
 nvim --headless "+Lazy! sync" +qa
 
 echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
@@ -2488,6 +2560,11 @@ echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neo
 ENDOFFILE
 chmod +x "$SETUP_DIR/bin/fix-neovim.sh"
 check_error "Failed to create fix-neovim.sh script"
+
+# Run the fix-neovim script now to ensure everything is set up correctly
+echo -e "${BLUE}Running Neovim setup script to configure providers and plugins...${NC}"
+"$SETUP_DIR/bin/fix-neovim.sh"
+check_error "Failed to run Neovim fix script"
 
 print_title "Initial Setup Complete!"
 echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
