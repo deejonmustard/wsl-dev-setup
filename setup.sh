@@ -77,7 +77,7 @@ if [ -n "$ZSH_VERSION" ]; then
   USING_ZSH=1
 fi
 
-SCRIPT_VERSION="0.1.0"
+SCRIPT_VERSION="0.2.0"
 print_title "Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
 echo -e "${GREEN}This script will set up a developer environment optimized for WSL Debian${NC}"
 echo -e "${GREEN}You can easily modify any part of this setup later${NC}"
@@ -119,11 +119,49 @@ check_error "Failed to upgrade packages"
 # Ensure basic dependencies are installed
 print_header "Installing core dependencies"
 print_step "Installing essential packages..."
-sudo apt install -y curl wget git python3 python3-pip unzip build-essential neofetch file
+sudo apt install -y curl wget git python3 python3-pip unzip build-essential file cmake
 check_error "Failed to install core dependencies"
 
 # Make sure PATH includes our local bin directories
 refresh_path
+
+# Install Fastfetch
+print_header "Installing Fastfetch"
+print_step "Building and installing Fastfetch..."
+if ! command_exists fastfetch; then
+  # Create temporary directory for installation
+  TEMP_DIR=$(mktemp -d)
+  check_error "Failed to create temporary directory for Fastfetch installation"
+  
+  cd "$TEMP_DIR" || { echo -e "${RED}Failed to change directory to $TEMP_DIR${NC}"; exit 1; }
+  
+  # Clone and build fastfetch
+  git clone --depth=1 https://github.com/fastfetch-cli/fastfetch.git
+  check_error "Failed to clone Fastfetch repository"
+  
+  cd fastfetch || { echo -e "${RED}Failed to change directory to fastfetch${NC}"; exit 1; }
+  mkdir -p build
+  cd build || { echo -e "${RED}Failed to create build directory${NC}"; exit 1; }
+  
+  # Build with CMake
+  cmake ..
+  check_error "Failed to configure Fastfetch with CMake"
+  
+  cmake --build . --target fastfetch
+  check_error "Failed to build Fastfetch"
+  
+  # Install
+  sudo cmake --install .
+  check_error "Failed to install Fastfetch"
+  
+  # Clean up
+  cd "$SETUP_DIR" || { echo -e "${RED}Failed to return to $SETUP_DIR${NC}"; exit 1; }
+  rm -rf "$TEMP_DIR"
+  
+  echo -e "${GREEN}Fastfetch installed successfully${NC}"
+else
+  print_step "Fastfetch is already installed"
+fi
 
 # Install Neovim
 print_header "Installing Neovim"
@@ -488,7 +526,6 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
       - fzf              # Fuzzy finder
       - tmux             # Terminal multiplexer
       - zsh              # Better shell
-      - neofetch         # System info display tool
       - file             # Determine file type
       
       # Development essentials
@@ -727,7 +764,7 @@ cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create nodejs role"
 
-# Create Zsh configuration file with neofetch at startup
+# Create Zsh configuration file with fastfetch at startup and quick links
 cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
 # Path to Oh My Zsh installation
 export ZSH="$HOME/.oh-my-zsh"
@@ -765,8 +802,31 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
-# Run neofetch at startup
-neofetch
+# Run fastfetch at startup
+fastfetch
+
+# Print quick links to configuration files and documentation
+print_dev_links() {
+  echo ""
+  echo "💻 Development Environment Quick Links:"
+  echo "----------------------------------------"
+  echo "📚 Guides:"
+  echo "  nvim ~/dev-env/docs/getting-started.md   # Getting started"
+  echo "  nvim ~/dev-env/docs/neovim-guide.md      # Neovim guide"
+  echo "  nvim ~/dev-env/docs/dev-cheatsheet.md    # Development cheatsheet"
+  echo ""
+  echo "⚙️  Configs:"
+  echo "  nvim ~/.config/nvim/lua/custom/init.lua  # Neovim custom config"
+  echo "  nvim ~/dev-env/configs/zsh/zshrc         # Zsh config"
+  echo "  nvim ~/dev-env/configs/tmux/tmux.conf    # Tmux config"
+  echo ""
+  echo "🔄 Update environment: ~/dev-env/update.sh"
+  echo "🔍 Edit configs menu:  ec"
+  echo "----------------------------------------"
+}
+
+# Show quick links
+print_dev_links
 
 # Aliases - focused on productivity
 alias vim='nvim'
@@ -1538,128 +1598,522 @@ If you want to add a completely new tool:
 EOL
 check_error "Failed to create ansible-guide.md"
 
+# Create a comprehensive Neovim guide focused on code creation and navigation
 cat > "$SETUP_DIR/docs/neovim-guide.md" << 'EOL'
-# Neovim Beginner's Guide
+# Neovim Complete Guide
 
-Neovim is a powerful, extensible text editor based on Vim. We've set up a modern configuration using Kickstart.nvim.
+This guide explains how to effectively use Neovim for coding and navigating codebases.
+
+## Table of Contents
+1. [Basic Concepts](#basic-concepts)
+2. [Code Navigation](#code-navigation)
+3. [Code Creation and Editing](#code-creation-and-editing)
+4. [Project Management](#project-management)
+5. [Code Intelligence](#code-intelligence)
+6. [Terminal Integration](#terminal-integration)
+7. [Git Integration](#git-integration)
+8. [Keyboard Shortcuts Reference](#keyboard-shortcuts-reference)
+9. [Customizing Neovim](#customizing-neovim)
 
 ## Basic Concepts
 
 Neovim has different modes:
-- **Normal mode**: For navigation and commands (default)
-- **Insert mode**: For typing text
-- **Visual mode**: For selecting text
-- **Command mode**: For entering commands with `:` prefix
-
-## Getting Started
+- **Normal mode** (Esc): For navigation and commands (default)
+- **Insert mode** (i): For typing text
+- **Visual mode** (v): For selecting text
+- **Command mode** (:): For entering commands
 
 ### Opening Files
 
 ```bash
-nvim file.txt     # Open a file
-nvim dir/         # Open a directory
-nvim file1 file2  # Open multiple files
+nvim file.txt          # Open a file
+nvim .                 # Open current directory 
+nvim file1 file2       # Open multiple files
+nvim +10 file.txt      # Open file at line 10
+nvim +/pattern file.txt # Open file at first 'pattern' match
 ```
 
-### Basic Navigation (Normal Mode)
-
-- **h, j, k, l**: Move left, down, up, right
-- **w**: Move to next word
-- **b**: Move to beginning of word
-- **0**: Move to beginning of line
-- **$**: Move to end of line
-- **gg**: Go to first line
-- **G**: Go to last line
-- **Ctrl+f**: Page down
-- **Ctrl+b**: Page up
-
-### Editing Text
-
-- **i**: Enter insert mode at cursor
-- **a**: Enter insert mode after cursor
-- **o**: Enter insert mode on new line below
-- **O**: Enter insert mode on new line above
-- **Esc**: Return to normal mode
-- **u**: Undo
-- **Ctrl+r**: Redo
-
-### Saving and Quitting
-
-- **:w**: Save file
-- **:q**: Quit (if no changes)
-- **:wq** or **:x**: Save and quit
-- **:q!**: Quit without saving
-- **Space+w**: Quick save (custom mapping)
-- **Space+q**: Quick quit (custom mapping)
-
-## Kickstart Features
-
-Our Neovim setup includes many modern features:
+## Code Navigation
 
 ### File Navigation
 
-- **Space+e**: Open file explorer
-- **Space+ff**: Find files
-- **Space+fg**: Search within files
+- **Space+e**: Open file explorer (NvimTree)
+  - Navigate with h,j,k,l
+  - Press ? for help in the explorer
+  - Press Enter to open files
+  
+- **Space+ff**: Find files by name (Telescope)
+  - Type to search file names
+  - Up/Down to navigate results
+  - Enter to open selected file
+  
+- **Space+fg**: Find text within files (live grep)
+  - Type to search content in files
+  - Results update in real-time
+  
 - **Space+fb**: Browse open buffers
-- **Space+fr**: Recently opened files
+  - See all open files and switch between them
 
-### Code Intelligence
+### Within File Navigation
 
-- **Tab**: Autocomplete suggestion
+- **gg**: Go to beginning of file
+- **G**: Go to end of file
+- **10G** or **:10**: Go to line 10
+- **w**: Move forward by word
+- **b**: Move backward by word
+- **0**: Start of line
+- **$**: End of line
+- **%**: Jump to matching bracket
+- **Ctrl+d**: Scroll half-page down
+- **Ctrl+u**: Scroll half-page up
+- **zz**: Center current line on screen
+
+### Search and Jump
+
+- **/pattern**: Search forward for pattern
+- **?pattern**: Search backward for pattern
+- **n**: Next occurrence of search pattern
+- **N**: Previous occurrence of search pattern
+- **f{char}**: Jump to next occurrence of character
+- **F{char}**: Jump to previous occurrence of character
+
+### Advanced Navigation
+
+- **gd**: Go to definition (LSP)
+- **gr**: Find references (LSP)
+- **Space+ds**: Document symbols (outline)
+- **[d** and **]d**: Previous/next diagnostic
+- **Ctrl+o**: Jump back to previous position
+- **Ctrl+i**: Jump forward in jump list
+
+## Code Creation and Editing
+
+### Text Insertion
+
+- **i**: Insert at cursor
+- **a**: Insert after cursor
+- **I**: Insert at beginning of line
+- **A**: Insert at end of line
+- **o**: Insert on new line below
+- **O**: Insert on new line above
+
+### Text Manipulation
+
+- **x**: Delete character under cursor
+- **dd**: Delete line
+- **yy**: Yank (copy) line
+- **p**: Paste after cursor
+- **P**: Paste before cursor
+- **u**: Undo
+- **Ctrl+r**: Redo
+
+### Block Operations
+
+1. **Visual mode selection**:
+   - **v**: Character-wise selection
+   - **V**: Line-wise selection
+   - **Ctrl+v**: Block selection
+   
+2. **With text selected**:
+   - **d**: Delete selection
+   - **y**: Yank (copy) selection
+   - **c**: Change (delete and enter insert mode)
+   - **>**: Indent
+   - **<**: Unindent
+   - **~**: Toggle case
+   - **J/K**: Move selected lines down/up (custom mapping)
+
+### Multiple Cursors (via block selection)
+1. Press **Ctrl+v** to enter visual block mode
+2. Select lines (j/k)
+3. Press **Shift+i** to insert at the beginning
+4. Type your text
+5. Press **Esc** to apply to all lines
+
+### Code Formatting
+
+- **=**: Format selected text
+- **gg=G**: Format entire file
+- **Space+lf**: Format file using LSP formatter (if available)
+
+## Project Management
+
+### Sessions
+
+- **:mksession file.vim**: Save current session
+- **:source file.vim**: Load a session
+- **:Telescope sessions**: Browse and select saved sessions
+
+### Multiple Files
+
+- **:e file**: Edit a file
+- **:bn**: Next buffer
+- **:bp**: Previous buffer
+- **Space+[**: Previous buffer (custom mapping)
+- **Space+]**: Next buffer (custom mapping)
+- **Space+c**: Close current buffer
+- **Space+fb**: Browse open buffers
+
+### Windows (Splits)
+
+- **:sp file**: Horizontal split
+- **:vsp file**: Vertical split
+- **Ctrl+h/j/k/l**: Navigate splits
+- **Ctrl+w o**: Close all other windows
+- **Ctrl+w =**: Make all windows equal size
+- **Ctrl+w _**: Maximize height
+- **Ctrl+w |**: Maximize width
+- **Ctrl+w r**: Rotate windows
+
+## Code Intelligence
+
+### Code Completion
+
+- Start typing to see suggestions
+- **Tab/S-Tab**: Navigate completion menu
+- **Enter**: Accept completion
+- **Ctrl+space**: Force completion menu
+
+### LSP Features
+
 - **gd**: Go to definition
-- **gr**: Go to references
+- **gr**: Find references
 - **K**: Show documentation
-- **Space+ca**: Show code actions
-- **Space+rn**: Rename symbol
+- **Space+ca**: Code actions (fix errors, organize imports, etc.)
+- **Space+rn**: Rename symbol (across all files)
+- **Space+D**: Type definition
+- **Space+ds**: Document symbols (outline)
+- **Space+ws**: Workspace symbols
 
-### Terminal Integration
+### Diagnostics
+
+- **Space+e**: Show line diagnostics
+- **[d** and **]d**: Previous/next diagnostic
+- **Space+q**: Send diagnostics to quickfix list
+
+## Terminal Integration
 
 - **:T**: Open terminal in split (custom command)
+- **:term**: Open integrated terminal
+- **Ctrl+\\ Ctrl+n**: Exit terminal mode (back to normal mode)
+- **i** or **a**: Enter terminal mode again (from normal mode)
 
-### Window Management
+## Git Integration
 
+Neovim includes Git integration via **gitsigns**:
+
+- **]c** and **[c**: Jump between hunks
+- **Space+hs**: Stage hunk
+- **Space+hr**: Reset hunk
+- **Space+hS**: Stage buffer
+- **Space+hu**: Undo stage hunk
+- **Space+hb**: Blame line
+- **Space+hd**: Diff this
+
+For more Git operations:
+- **:Git**: Run git commands 
+- **:Gdiff**: Git diff
+- **:Gblame**: Git blame
+
+## Keyboard Shortcuts Reference
+
+### Most used shortcuts
+
+- **Space+ff**: Find files
+- **Space+fg**: Find text in files
+- **Space+e**: Toggle file explorer
+- **gd**: Go to definition
+- **K**: Show documentation
+- **Space+ca**: Code actions
 - **Ctrl+h/j/k/l**: Navigate between windows
-- **:split** or **:sp**: Horizontal split
-- **:vsplit** or **:vs**: Vertical split
-- **Ctrl+w+o**: Close all windows except current
+- **Space+w**: Save file
+- **Space+q**: Quit
+
+### Motion Shortcuts
+
+- **w/b/e**: Word navigation
+- **f/F**: Jump to character
+- **t/T**: Jump until character
+- **%**: Jump to matching bracket
+- **gg/G**: Top/bottom of file
+- **{/}**: Jump paragraphs
+
+### Text Objects
+
+Select or operate on text objects:
+- **iw/aw**: Inside/around word
+- **i"/a"**: Inside/around quotes
+- **i(/a(**: Inside/around parentheses
+- **i{/a{**: Inside/around braces
+- **it/at**: Inside/around tags
+
+Example: **ci"** = Change inside quotes
 
 ## Customizing Neovim
 
-Your custom Neovim configuration is in `~/.config/nvim/lua/custom/init.lua`.
+Your custom configuration is in: `~/.config/nvim/lua/custom/init.lua`
 
-To edit it:
+To edit:
 ```bash
 ec
 # Then select "nvim" from the menu
 ```
 
-After editing, run:
-```bash
-~/dev-env/update.sh
+### Adding Plugins
+
+To add a new plugin, edit the custom config and add:
+
+```lua
+-- In your custom/init.lua
+-- This will run after the Kickstart config loads
+
+-- Add a plugin
+table.insert(require('lazy').plugins, {
+  'username/plugin-name',
+  config = function()
+    -- Configuration for the plugin
+    require('plugin-name').setup({
+      -- options
+    })
+  end
+})
 ```
 
-## Learning Path
+### Adding Keymaps
 
-1. Start with basic navigation and editing
-2. Learn about visual mode for text selection
-3. Explore the file finder and code navigation
-4. Try out code completion and LSP features
+Add custom keymaps in your custom/init.lua:
 
-## Practical Tips
+```lua
+vim.keymap.set('n', '<leader>x', function()
+  print("Custom command!")
+end, { desc = 'My custom command' })
+```
 
-- Use **:Tutor** to start the interactive tutorial
-- Embrace normal mode for navigation
-- Learn a few commands at a time
-- Use the mouse (it's enabled)
+### Adding Commands
 
-## Getting Help
+Create custom commands:
 
-- Type `:help keyword` for built-in documentation
-- Check [Neovim Documentation](https://neovim.io/doc/)
-- Visit [Kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) for more about our setup
+```lua
+vim.api.nvim_create_user_command('MyCommand', function()
+  print("Running my command")
+end, {})
+```
+
+## Learning Resources
+
+- `:Tutor` - Interactive Vim tutorial
+- `:help` - Comprehensive documentation
+- [Learn Vim the Smart Way](https://learnvim.irian.to/)
+- [ThePrimeagen's Neovim videos](https://www.youtube.com/c/ThePrimeagen)
+- [TJ DeVries' Neovim videos](https://www.youtube.com/c/TJDeVries)
 EOL
 check_error "Failed to create neovim-guide.md"
+
+# Create a new guide specifically about working with code projects in Neovim
+cat > "$SETUP_DIR/docs/neovim-projects.md" << 'EOL'
+# Working with Code Projects in Neovim
+
+This guide provides practical workflows for managing code projects in Neovim.
+
+## Setting Up a New Project
+
+### 1. Create a Project Directory Structure
+
+```bash
+mkdir -p my-project/{src,tests,docs}
+cd my-project
+git init
+```
+
+### 2. Open the Project in Neovim
+
+```bash
+nvim .
+```
+
+### 3. Use the File Explorer to Navigate
+
+- Press `<Space>e` to open the file explorer
+- Navigate to the folder where you want to create a file
+- Press `a` to add a new file
+
+## Efficient Workflow for Existing Projects
+
+### 1. Opening a Project
+
+```bash
+cd my-project
+nvim .
+```
+
+### 2. Finding Files Quickly
+
+- `<Space>ff` - Find files in project
+- `<Space>fg` - Search for text in files
+- `<Space>fr` - Recent files
+- `<Space>fb` - Open buffers
+
+### 3. Navigating Between Files
+
+- `gd` - Go to definition
+- `Ctrl+o` - Jump back
+- `Ctrl+i` - Jump forward
+- `<Space>ds` - Document symbols (function list)
+
+### 4. Using Multiple Windows
+
+For parallel work (e.g. code and tests):
+1. Open your main file
+2. Open test file in split: `:vsp tests/test_file.py`
+3. Navigate between splits with `Ctrl+h/j/k/l`
+
+### 5. Running Commands Without Leaving Neovim
+
+- `:T npm run test` - Run in split terminal
+- `:terminal` - Open a terminal buffer
+- In terminal mode: `Ctrl+\ Ctrl+n` to return to normal mode
+
+## Language-Specific Features
+
+Your Kickstart Neovim setup includes LSP (Language Server Protocol) support, which provides intelligent features for many languages. When you open a file of a supported language, Neovim will:
+
+1. Automatically connect to the appropriate language server
+2. Provide code completion, diagnostics, and navigation
+
+### JavaScript/TypeScript Example
+
+1. Open a JS/TS file: `nvim src/index.js`
+2. LSP will automatically activate
+3. Get code completion as you type
+4. See errors and warnings inline
+5. Navigate code with:
+   - `gd` - Go to definition
+   - `gr` - Find references  
+   - `K` - Show documentation
+
+### Python Example
+
+1. Open a Python file: `nvim src/main.py`
+2. LSP (Pyright) will automatically activate
+3. Use:
+   - `<Space>ca` - Code actions (import fixing, etc.)
+   - `<Space>rn` - Rename symbols
+   - `[d` and `]d` - Navigate between errors
+
+## Working with Multiple Projects
+
+### Using Workspaces
+
+1. Create a workspace file:
+   ```lua
+   -- ~/.local/share/nvim/workspaces/my-projects.lua
+   return {
+     {
+       name = "Project 1",
+       path = "~/dev/project1",
+     },
+     {
+       name = "Project 2", 
+       path = "~/dev/project2",
+     }
+   }
+   ```
+
+2. Switch between projects:
+   - `<Space>fw` - Search workspaces
+   - Select the project to open
+
+## Git Integration
+
+Kickstart Neovim includes git integration:
+
+1. View git changes with gutter signs
+2. Navigate changes with `]c` and `[c` 
+3. Stage/unstage hunks with `<Space>hs`/`<Space>hu`
+4. Stage entire buffer with `<Space>hS`
+5. View blame with `<Space>hb`
+
+## Saving and Restoring Sessions
+
+Save your complete working state:
+
+1. Save session: `:mksession ~/sessions/project1.vim` 
+2. Restore later: `nvim -S ~/sessions/project1.vim`
+
+## Database Integration
+
+For database work, you can set up the `vim-dadbod` plugin:
+
+1. Edit your custom config:
+   ```bash
+   ec
+   # Select nvim
+   ```
+
+2. Add the following to your init.lua:
+   ```lua
+   table.insert(require('lazy').plugins, {
+     'tpope/vim-dadbod',
+     dependencies = {
+       'kristijanhusak/vim-dadbod-ui',
+       'kristijanhusak/vim-dadbod-completion',
+     },
+     config = function()
+       vim.g.db_ui_save_location = vim.fn.stdpath('config') .. '/db_ui'
+       
+       -- Add key mapping to open DB UI
+       vim.keymap.set('n', '<leader>db', ':DBUI<CR>', { desc = 'Open Database UI' })
+     end
+   })
+   ```
+
+3. Run: `:Lazy sync`
+
+## Docker Integration
+
+For Docker-based projects:
+
+1. Install docker.nvim plugin:
+   ```lua
+   table.insert(require('lazy').plugins, {
+     'dgrbrady/nvim-docker',
+     dependencies = {
+       'nvim-lua/plenary.nvim',
+       'MunifTanjim/nui.nvim',
+     },
+     config = function()
+       require('nvim-docker').setup({})
+     end
+   })
+   ```
+
+2. Run: `:Lazy sync`
+3. Use: `:Docker` to manage containers
+
+## Practical Tips for Large Projects
+
+1. **Use Project-specific Config**:
+   Create `.nvim.lua` in the project root:
+   ```lua
+   -- Project-specific settings
+   vim.opt_local.tabstop = 4
+   vim.opt_local.shiftwidth = 4
+   
+   -- Add project-specific mappings
+   vim.keymap.set('n', '<leader>t', ':T npm test<CR>', { buffer = true })
+   ```
+
+2. **Set Up Project-specific Commands**:
+   ```bash
+   echo "local project_cmd = vim.api.nvim_create_user_command
+   project_cmd('Test', 'T npm test', {})
+   project_cmd('Build', 'T npm run build', {})" > .nvim.lua
+   ```
+
+3. **Create Project Snippets**:
+   Install the LuaSnip plugin and create project-specific snippets in `~/.config/nvim/snippets/your_language.lua`
+EOL
+check_error "Failed to create neovim-projects.md"
 
 cat > "$SETUP_DIR/docs/wsl-guide.md" << 'EOL'
 # WSL Integration Guide
@@ -1845,7 +2299,7 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 ## Environment Management
 - `~/dev-env/update.sh` - Update your environment
 - `ec` - Edit your configurations interactively
-- `neofetch` - Display system information
+- `fastfetch` - Display system information
 
 ## Getting Help
 - `man [command]` - Show manual for command
@@ -1854,10 +2308,13 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 EOL
 check_error "Failed to create dev-cheatsheet.md"
 
-# Add Bash profile to run neofetch at startup (even before Zsh switch)
-if ! grep -q "neofetch" ~/.bashrc; then
-  echo -e "\n# Run neofetch at startup\nneofetch" >> ~/.bashrc
-  echo -e "${GREEN}Added neofetch to ~/.bashrc startup${NC}"
+# Update .bashrc to use fastfetch instead of neofetch
+if ! grep -q "fastfetch" ~/.bashrc && grep -q "neofetch" ~/.bashrc; then
+  sed -i 's/neofetch/fastfetch/g' ~/.bashrc
+  echo -e "${GREEN}Updated ~/.bashrc to use fastfetch instead of neofetch${NC}"
+elif ! grep -q "fastfetch" ~/.bashrc && ! grep -q "neofetch" ~/.bashrc; then
+  echo -e "\n# Run fastfetch at startup\nfastfetch" >> ~/.bashrc
+  echo -e "${GREEN}Added fastfetch to ~/.bashrc startup${NC}"
 fi
 
 # Also add PATH to .bashrc (if not already there) to ensure commands are available without Zsh
@@ -1884,5 +2341,7 @@ echo -e "\n${BLUE}Next steps:${NC}"
 echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
 echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
 echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
-echo -e "4. Explore the tool guides in the docs directory: ${YELLOW}ls ~/dev-env/docs/${NC}"
+echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide.md${NC}"
+echo -e "   and ${YELLOW}nvim ~/dev-env/docs/neovim-projects.md${NC} to learn about code navigation"
+echo -e "5. Check out the cheatsheet: ${YELLOW}nvim ~/dev-env/docs/dev-cheatsheet.md${NC}"
 echo -e "\n${GREEN}Happy coding!${NC}"
