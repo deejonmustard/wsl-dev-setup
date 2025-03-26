@@ -76,13 +76,25 @@ print_title "Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
 echo -e "${GREEN}This script will set up a developer environment optimized for WSL Debian${NC}"
 echo -e "${GREEN}You can easily modify any part of this setup later${NC}"
 
-# Create our workspace structure first
+# Create our workspace structure first - before any other operations
 print_header "Creating Workspace Structure"
 print_step "Setting up directory structure..."
-ensure_dir ~/dev-env/{ansible,configs,bin,docs}
+
+# Main directory structure
+ensure_dir ~/dev-env
 ensure_dir ~/.local/bin
 ensure_dir ~/bin
 ensure_dir ~/tools
+
+# Create all config directories first to avoid "No such file or directory" errors
+ensure_dir ~/dev-env/ansible/roles
+ensure_dir ~/dev-env/configs/nvim/custom
+ensure_dir ~/dev-env/configs/zsh
+ensure_dir ~/dev-env/configs/tmux
+ensure_dir ~/dev-env/configs/wsl
+ensure_dir ~/dev-env/configs/git
+ensure_dir ~/dev-env/bin
+ensure_dir ~/dev-env/docs
 
 SETUP_DIR="$HOME/dev-env"
 cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory to $SETUP_DIR${NC}"; exit 1; }
@@ -174,34 +186,34 @@ fi
 print_header "Setting up Neovim configuration"
 print_step "Setting up Kickstart Neovim configuration..."
 
-# Ensure Neovim config directory exists
+# Improved approach for kickstart installation that properly handles existing directories
+ensure_dir ~/.config
 ensure_dir ~/.config/nvim
-ensure_dir ~/.config/nvim/lua/custom
 
-# Check if Kickstart is already installed
-if [ ! -d ~/.config/nvim/.git ]; then
-  # Back up any existing config
-  if [ -f ~/.config/nvim/init.lua ] || [ -f ~/.config/nvim/init.vim ]; then
-    BACKUP_DIR=~/.config/nvim.backup.$(date +%Y%m%d%H%M%S)
-    ensure_dir "$BACKUP_DIR"
-    mv ~/.config/nvim/* "$BACKUP_DIR/"
-    echo -e "${YELLOW}Existing Neovim configuration backed up to ${BACKUP_DIR}${NC}"
+# First, check if the directory already has a kickstart installation
+if [ -f ~/.config/nvim/init.lua ] && grep -q "kickstart" ~/.config/nvim/init.lua; then
+  print_step "Kickstart Neovim configuration already installed, updating..."
+  # Just create the custom directory without touching kickstart setup
+  ensure_dir ~/.config/nvim/lua/custom
+else
+  # Backup existing configuration if any
+  if [ -d ~/.config/nvim ] && [ "$(ls -A ~/.config/nvim)" ]; then
+    BACKUP_DIR="$HOME/.config/nvim_backup_$(date +%Y%m%d%H%M%S)"
+    print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
+    mv ~/.config/nvim "$BACKUP_DIR"
+    ensure_dir ~/.config/nvim
   fi
   
-  # Clone Kickstart Neovim
+  # Clone kickstart.nvim - fresh install
+  print_step "Installing Kickstart Neovim..."
   git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
   check_error "Failed to clone Kickstart Neovim"
   
-  # Ensure custom directory exists (may have been overwritten by git clone)
+  # Make sure custom directory exists
   ensure_dir ~/.config/nvim/lua/custom
-  
-  echo -e "${GREEN}Kickstart Neovim configuration installed successfully${NC}"
-else
-  echo -e "${YELLOW}Kickstart Neovim configuration already exists${NC}"
 fi
 
-# Create custom init.lua
-ensure_dir "$SETUP_DIR/configs/nvim/custom"
+# Create custom init.lua to extend Kickstart
 cat > "$SETUP_DIR/configs/nvim/custom/init.lua" << 'EOL'
 -- Custom NeoVim configuration extending Kickstart
 -- This is loaded after the main Kickstart configuration
@@ -335,9 +347,6 @@ Run: `./update.sh`
 EOL
 check_error "Failed to create README file"
 
-# Create the Ansible playbooks directory
-ensure_dir "$SETUP_DIR/ansible/roles"
-
 # Create main playbook
 cat > "$SETUP_DIR/ansible/setup.yml" << 'EOL'
 ---
@@ -357,7 +366,7 @@ cat > "$SETUP_DIR/ansible/setup.yml" << 'EOL'
 EOL
 check_error "Failed to create main Ansible playbook"
 
-# Create update script
+# Create update script with fixed paths
 cat > "$SETUP_DIR/update.sh" << 'EOL'
 #!/bin/bash
 # Update script for WSL development environment
@@ -382,6 +391,14 @@ check_error() {
   fi
 }
 
+# Create directory if it doesn't exist
+ensure_dir() {
+  if [ ! -d "$1" ]; then
+    mkdir -p "$1"
+    check_error "Failed to create directory: $1"
+  fi
+}
+
 # Refresh PATH
 refresh_path() {
   export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
@@ -391,8 +408,11 @@ refresh_path() {
 # Make sure PATH includes local bin directory
 refresh_path
 
+# Get directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Navigate to our environment directory
-cd "$(dirname "$0")" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
+cd "$SCRIPT_DIR" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
 
 # Check for custom variables
 if [ -f "config.env" ]; then
@@ -402,25 +422,25 @@ fi
 # Update Neovim configuration
 echo -e "${BLUE}Updating Neovim configuration...${NC}"
 # Ensure directory exists
-mkdir -p ~/.config/nvim/lua/custom
-cp configs/nvim/custom/init.lua ~/.config/nvim/lua/custom/init.lua
+ensure_dir ~/.config/nvim/lua/custom
+cp "$SCRIPT_DIR/configs/nvim/custom/init.lua" ~/.config/nvim/lua/custom/init.lua
 check_error "Failed to update Neovim configuration"
 
 # Update WSL utilities
 echo -e "${BLUE}Updating WSL utilities...${NC}"
 # Ensure bin directory exists
-mkdir -p ~/bin
+ensure_dir ~/bin
 
 # Copy and make executable
-cp configs/wsl/wsl-path-fix.sh ~/bin/
-cp configs/wsl/winopen ~/bin/
-cp configs/wsl/clip-copy ~/bin/
+cp "$SCRIPT_DIR/configs/wsl/wsl-path-fix.sh" ~/bin/
+cp "$SCRIPT_DIR/configs/wsl/winopen" ~/bin/
+cp "$SCRIPT_DIR/configs/wsl/clip-copy" ~/bin/
 chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
 check_error "Failed to update WSL utilities"
 
 # Run our Ansible playbook
 echo -e "${BLUE}Updating your development environment...${NC}"
-ansible-playbook -i localhost, ansible/setup.yml
+ansible-playbook -i localhost, "$SCRIPT_DIR/ansible/setup.yml"
 check_error "Ansible playbook execution failed"
 
 echo -e "${GREEN}Environment updated successfully!${NC}"
@@ -491,7 +511,7 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create core-tools role"
 
-# Create shell role
+# Create shell role with fixed paths
 ensure_dir "$SETUP_DIR/ansible/roles/shell/tasks"
 cat > "$SETUP_DIR/ansible/roles/shell/tasks/main.yml" << 'EOL'
 ---
@@ -520,21 +540,15 @@ cat > "$SETUP_DIR/ansible/roles/shell/tasks/main.yml" << 'EOL'
   args:
     creates: ~/.local/bin/zoxide
 
-- name: Ensure Zsh config directory exists
-  file:
-    path: "{{ playbook_dir }}/../configs/zsh"
-    state: directory
-    mode: '0755'
-
 - name: Copy Zsh configuration
-  template:
+  copy:
     src: "{{ playbook_dir }}/../configs/zsh/zshrc"
     dest: ~/.zshrc
     backup: yes
 EOL
 check_error "Failed to create shell role"
 
-# Create tmux role
+# Create tmux role with fixed paths
 ensure_dir "$SETUP_DIR/ansible/roles/tmux/tasks"
 cat > "$SETUP_DIR/ansible/roles/tmux/tasks/main.yml" << 'EOL'
 ---
@@ -553,21 +567,15 @@ cat > "$SETUP_DIR/ansible/roles/tmux/tasks/main.yml" << 'EOL'
     state: present
   when: tmux_installed.rc != 0
 
-- name: Ensure tmux config directory exists
-  file:
-    path: "{{ playbook_dir }}/../configs/tmux"
-    state: directory
-    mode: '0755'
-
 - name: Copy tmux configuration
-  template:
+  copy:
     src: "{{ playbook_dir }}/../configs/tmux/tmux.conf"
     dest: ~/.tmux.conf
     backup: yes
 EOL
 check_error "Failed to create tmux role"
 
-# Create WSL-specific role
+# Create WSL-specific role with fixed paths
 ensure_dir "$SETUP_DIR/ansible/roles/wsl-specific/tasks"
 cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
 ---
@@ -579,14 +587,8 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
     state: directory
     mode: '0755'
 
-- name: Ensure WSL config directory exists
-  file:
-    path: "{{ playbook_dir }}/../configs/wsl"
-    state: directory
-    mode: '0755'
-
 - name: Copy WSL utility scripts
-  template:
+  copy:
     src: "{{ playbook_dir }}/../configs/wsl/{{ item }}"
     dest: ~/bin/{{ item }}
     mode: '0755'
@@ -601,7 +603,7 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
   changed_when: false
 
 - name: Ensure .wslconfig exists in Windows home
-  template:
+  copy:
     src: "{{ playbook_dir }}/../configs/wsl/wslconfig"
     dest: "/mnt/c/Users/{{ windows_username.stdout }}/.wslconfig"
     backup: yes
@@ -609,7 +611,7 @@ cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create wsl-specific role"
 
-# Create git-config role
+# Create git-config role with fixed paths
 ensure_dir "$SETUP_DIR/ansible/roles/git-config/tasks"
 cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
 ---
@@ -653,12 +655,6 @@ cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
       when: git_user_email.rc != 0
   when: git_user_name.rc != 0 or git_user_email.rc != 0
 
-- name: Ensure git config directory exists
-  file:
-    path: "{{ playbook_dir }}/../configs/git"
-    state: directory
-    mode: '0755'
-
 - name: Configure helpful Git defaults
   command: "{{ item }}"
   loop:
@@ -668,6 +664,16 @@ cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
     - git config --global color.ui auto
     - git config --global push.default simple
     - git config --global core.autocrlf input
+
+- name: Copy gitignore_global file
+  copy:
+    src: "{{ playbook_dir }}/../configs/git/gitignore_global"
+    dest: ~/.gitignore_global
+    mode: '0644'
+  ignore_errors: yes
+
+- name: Set global gitignore
+  command: git config --global core.excludesfile ~/.gitignore_global
 EOL
 check_error "Failed to create git-config role"
 
@@ -713,9 +719,6 @@ cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
     executable: /bin/bash
 EOL
 check_error "Failed to create nodejs role"
-
-# Create configs directory structure
-ensure_dir "$SETUP_DIR/configs/"{nvim/custom,zsh,tmux,wsl,git}
 
 # Create Zsh configuration file
 cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
@@ -881,8 +884,6 @@ EOL
 check_error "Failed to create tmux configuration"
 
 # Create WSL utilities
-ensure_dir "$SETUP_DIR/configs/wsl"
-
 # Path fix script
 cat > "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" << 'EOL'
 #!/bin/bash
