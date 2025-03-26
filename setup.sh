@@ -769,6 +769,9 @@ cat > "$SETUP_DIR/configs/git/gitconfig" << 'EOL'
   hist = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
 EOL
 
+Here is the corrected version where everything is printed as plain text without splitting into separate code blocks:
+
+```
 # Create a guide for editing configs
 cat > "$SETUP_DIR/docs/editing-configs.md" << 'EOL'
 # How to Edit Your Development Environment
@@ -790,11 +793,13 @@ The easiest way to edit your configurations is using the built-in `ec` (edit con
 All configuration files are stored in the `~/dev-env/configs/` directory:
 
 ### Editing Zsh Configuration
-
 ```bash
 nvim ~/dev-env/configs/zsh/zshrc
+```
 
 ### Editing Git Configuration
-
 ```bash
 nvim ~/dev-env/configs/git/gitconfig
+```
+EOL
+```
