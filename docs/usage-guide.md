@@ -38,3 +38,28 @@ sudo apt install curl
 ```bash
 curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
+**Extra**
+```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh
+
+# Make it executable
+chmod +x setup.sh
+
+# Run the script
+./setup.sh
+
+# OR
+
+# Clone the repository
+git clone https://github.com/deejonmustard/wsl-dev-setup.git
+
+# Navigate to the repository directory
+cd wsl-dev-setup
+
+# Make the script executable
+chmod +x setup.sh
+
+# Run the script
+./setup.sh
+```
