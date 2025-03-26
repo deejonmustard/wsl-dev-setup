@@ -316,6 +316,10 @@ vim.api.nvim_create_autocmd('FileType', {
 -- 
 -- -- Try adding a line below to see the effect:
 -- -- vim.cmd('colorscheme tokyonight-night')
+
+-- Add to the top of your custom init.lua file
+-- Configure nvim-treesitter to install without prompts
+vim.g.treesitter_auto_install = true
 EOL
 check_error "Failed to create custom Neovim configuration file"
 
@@ -395,7 +399,7 @@ NC='\033[0m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-RED='\033[0;31m'
+RED='\033[0m'
 
 # Error handling function
 check_error() {
@@ -457,11 +461,54 @@ cp "$SCRIPT_DIR/configs/wsl/clip-copy" ~/bin/
 chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
 check_error "Failed to update WSL utilities"
 
+# Install Neovim providers using virtual environment
+echo -e "${BLUE}Installing Neovim providers...${NC}"
+ensure_dir ~/.config/nvim/venv
+
+# Check if we need to create a virtual environment
+if [ ! -f ~/.config/nvim/venv/bin/python ]; then
+  # Make sure python3-venv is installed
+  if ! command -v python3 -m venv &> /dev/null; then
+    sudo apt-get install -y python3-venv python3-pip
+    check_error "Failed to install python3-venv"
+  fi
+  
+  # Create virtual environment
+  python3 -m venv ~/.config/nvim/venv
+  check_error "Failed to create Python virtual environment"
+fi
+
+# Install Python provider in the virtual environment
+~/.config/nvim/venv/bin/pip install pynvim
+check_error "Failed to install Python provider for Neovim"
+
+# Configure Neovim to use the virtual environment
+mkdir -p ~/.config/nvim/after/plugin
+cat > ~/.config/nvim/after/plugin/python-provider.lua << EOL
+-- Configure Neovim Python provider to use virtual environment
+vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
+EOL
+check_error "Failed to configure Python provider"
+
 # Update the PATH in current shell and .bashrc if not already set
 if ! grep -q 'PATH="$HOME/bin:$HOME/.local/bin:$PATH"' ~/.bashrc; then
   echo 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
   echo -e "${YELLOW}Added PATH update to ~/.bashrc${NC}"
   echo -e "${YELLOW}Run 'source ~/.bashrc' to apply changes to current session${NC}"
+fi
+
+# Configure nvim-treesitter to avoid prompts
+if [ ! -f ~/.config/nvim/after/plugin/treesitter-config.lua ]; then
+  cat > ~/.config/nvim/after/plugin/treesitter-config.lua << EOL
+-- Configure nvim-treesitter to install without prompts
+local configs = require('nvim-treesitter.configs')
+configs.setup({
+  auto_install = true,
+  ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
+  sync_install = false,
+})
+EOL
+  check_error "Failed to configure treesitter"
 fi
 
 # Run our Ansible playbook
