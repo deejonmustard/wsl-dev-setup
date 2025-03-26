@@ -1,28 +1,25 @@
 **Usage Guide**
 # Initial Setup
 
-### **Uninstall previous installs**
-```
+### **Uninstall Previous Installs**
+```bash
 wsl --unregister Debian
 ```
 
-### **List local distro installs w version number**
-```
+### **List Local Distro Installs w Version**
+```bash
 wsl -l -v
-```
-
-### **List official distros** 
-```
+# List official distros 
 wsl -l -o 
 ```
 
-### **Install from store (more updates)**
-```
+### **Install From Store (More Updates)**
+```bash
 wsl.exe --install -d Debian
 ```
 
 ### **launch Debian**
-```
+```bash
 wsl.exe -d Debian
 ```
 
@@ -31,13 +28,13 @@ wsl.exe -d Debian
 
 ### **Basic commands**
 
-```
+```bash
 sudo apt update
 sudo apt upgrade
 sudo apt install curl
 ```
 
-**Run the script**
-```
+**Run The Script**
+```bash
 curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
