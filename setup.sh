@@ -52,10 +52,40 @@ check_error() {
   fi
 }
 
-SCRIPT_VERSION="0.1.0-beta.2"
+# Create directory if it doesn't exist
+ensure_dir() {
+  if [ ! -d "$1" ]; then
+    mkdir -p "$1"
+    check_error "Failed to create directory: $1"
+  fi
+}
+
+# Check if a command exists
+command_exists() {
+  command -v "$1" &> /dev/null
+}
+
+# Refresh PATH and available commands
+refresh_path() {
+  export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
+  hash -r
+}
+
+SCRIPT_VERSION="0.1.0"
 print_title "Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
 echo -e "${GREEN}This script will set up a developer environment optimized for WSL Debian${NC}"
 echo -e "${GREEN}You can easily modify any part of this setup later${NC}"
+
+# Create our workspace structure first
+print_header "Creating Workspace Structure"
+print_step "Setting up directory structure..."
+ensure_dir ~/dev-env/{ansible,configs,bin,docs}
+ensure_dir ~/.local/bin
+ensure_dir ~/bin
+ensure_dir ~/tools
+
+SETUP_DIR="$HOME/dev-env"
+cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory to $SETUP_DIR${NC}"; exit 1; }
 
 # Update system
 print_header "Updating System Packages"
@@ -67,731 +97,111 @@ print_step "Upgrading packages..."
 sudo apt upgrade -y
 check_error "Failed to upgrade packages"
 
-# Create our workspace structure
-print_header "Creating Workspace Structure"
-print_step "Setting up directory structure..."
-mkdir -p ~/dev-env/{ansible,configs,bin,docs}
-SETUP_DIR="$HOME/dev-env"
-cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
-
 # Ensure basic dependencies are installed
 print_header "Installing core dependencies"
-print_step "Updating package lists again..."
-sudo apt update
-check_error "Failed to update package lists"
-
 print_step "Installing essential packages..."
 sudo apt install -y curl wget git python3 python3-pip unzip build-essential
 check_error "Failed to install core dependencies"
 
-# Install Neovim using AppImage method
-print_header "Installing Neovim"
-print_step "Creating necessary directories..."
-mkdir -p ~/.local/bin
-mkdir -p ~/tools
+# Make sure PATH includes our local bin directories
+refresh_path
 
-# Check if Neovim is already installed
-if ! command -v nvim &> /dev/null; then
-  print_step "Downloading and installing Neovim..."
+# Install Neovim
+print_header "Installing Neovim"
+if ! command_exists nvim; then
+  print_step "Downloading Neovim..."
   
-  # First, install squashfs-tools
-  sudo apt install -y squashfs-tools
-  check_error "Failed to install squashfs-tools"
+  # Create temporary directory for installation
+  TEMP_DIR=$(mktemp -d)
+  check_error "Failed to create temporary directory for Neovim installation"
+  
+  cd "$TEMP_DIR" || { echo -e "${RED}Failed to change directory to $TEMP_DIR${NC}"; exit 1; }
   
   # Download Neovim AppImage
-  cd ~/tools
-  print_step "Downloading Neovim AppImage..."
-  wget -q https://github.com/neovim/neovim/releases/download/stable/nvim.appimage
+  wget -q https://github.com/neovim/neovim/releases/download/v0.10.0/nvim.appimage
   check_error "Failed to download Neovim AppImage"
-  chmod +x nvim.appimage
   
-  # Create temporary directory for extraction
-  mkdir -p ~/nvim-temp
+  # Make it executable
+  chmod u+x nvim.appimage
+  check_error "Failed to make Neovim AppImage executable"
   
-  # Extract the AppImage using the specific method
+  # Extract the AppImage
   print_step "Extracting Neovim AppImage..."
+  ./nvim.appimage --appimage-extract
+  check_error "Failed to extract Neovim AppImage"
   
-  # Find the offset for SquashFS image
-  offset=$(grep -a -b -m 1 --only-matching '^\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' nvim.appimage | cut -d ':' -f 1)
+  # Create the target directory and move files
+  print_step "Installing Neovim..."
+  sudo mkdir -p /opt/nvim
+  check_error "Failed to create /opt/nvim directory"
   
-  if [ -z "$offset" ]; then
-    echo -e "${RED}Error: Could not find SquashFS offset in AppImage${NC}"
-    print_step "Trying fallback installation method..."
-    
-    # Fallback: Try to download the tar.gz version instead
-    wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
-    check_error "Failed to download Neovim tar.gz"
-    
-    tar -xzf nvim-linux64.tar.gz
-    check_error "Failed to extract Neovim tar.gz"
-    
-    ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
-    check_error "Failed to create Neovim symbolic link"
-  else
-    # Continue with 1st method
-    offset=$((offset + 16))
-    
-    # Extract the SquashFS image
-    dd if=nvim.appimage bs=1 skip=$offset of=~/nvim-temp/squashfs.img
-    check_error "Failed to extract SquashFS image from AppImage"
-    
-    # Create directory for extracted files
-    mkdir -p ~/nvim-extracted
-    
-    # Extract the SquashFS filesystem
-    sudo unsquashfs -f -d ~/nvim-extracted ~/nvim-temp/squashfs.img
-    
-    # Check if extraction succeeded
-    if [ $? -ne 0 ]; then
-      echo -e "${RED}Error: Failed to extract SquashFS image. Trying fallback installation.${NC}"
-      
-      # Fallback: Try to download the tar.gz version instead
-      wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
-      check_error "Failed to download Neovim tar.gz"
-      
-      tar -xzf nvim-linux64.tar.gz
-      check_error "Failed to extract Neovim tar.gz"
-      
-      ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
-      check_error "Failed to create Neovim symbolic link"
-    else
-      # Move the extracted files to final location
-      sudo mv ~/nvim-extracted /opt/nvim
-      check_error "Failed to move extracted Neovim files"
-      
-      # Create symbolic link
-      sudo ln -sf /opt/nvim/usr/bin/nvim /usr/local/bin/nvim
-      check_error "Failed to create Neovim symbolic link"
-      
-      # Create additional link in local bin
-      ln -sf /usr/local/bin/nvim ~/.local/bin/nvim
-    fi
-    
-    # Clean up temporary files
-    rm -rf ~/nvim-temp
-    rm -rf ~/nvim-extracted
-  fi
+  sudo cp -r squashfs-root/* /opt/nvim/
+  check_error "Failed to copy Neovim files to /opt/nvim"
+  
+  # Create symlinks
+  sudo ln -sf /opt/nvim/AppRun /usr/local/bin/nvim
+  check_error "Failed to create system-wide Neovim symlink"
+  
+  ln -sf /usr/local/bin/nvim ~/.local/bin/nvim
+  check_error "Failed to create user Neovim symlink"
+  
+  # Clean up temporary files
+  cd "$SETUP_DIR" || { echo -e "${RED}Failed to return to $SETUP_DIR${NC}"; exit 1; }
+  rm -rf "$TEMP_DIR"
+  check_error "Failed to clean up temporary Neovim installation files"
   
   # Verify installation
   print_step "Verifying Neovim installation..."
-  export PATH="$HOME/.local/bin:$PATH"
-  nvim --version
-  check_error "Neovim installation verification failed"
+  refresh_path
   
-  echo -e "${GREEN}Neovim installed successfully${NC}"
-  cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
+  if ! command_exists nvim; then
+    echo -e "${RED}Neovim installation verification failed. Path may not be updated.${NC}"
+    echo -e "${YELLOW}Please try running: hash -r${NC}"
+    hash -r
+    if ! command_exists nvim; then
+      echo -e "${RED}Neovim still not found. Will continue but you may need to restart your terminal.${NC}"
+    fi
+  else
+    nvim --version
+    echo -e "${GREEN}Neovim installed successfully${NC}"
+  fi
 else
   print_step "Neovim is already installed"
+  nvim --version
 fi
 
-# Install Ansible (as recommended by ThePrimeagen for reproducible environments)
-print_header "Setting up Ansible"
-if ! command -v ansible &> /dev/null; then
-  print_step "Installing Ansible..."
-  sudo apt install -y ansible  # System installation via apt
-  check_error "Failed to install Ansible"
-  echo -e "${GREEN}Ansible installed successfully!${NC}"
+# Install Kickstart Neovim configuration
+print_header "Setting up Neovim configuration"
+print_step "Setting up Kickstart Neovim configuration..."
+
+# Ensure Neovim config directory exists
+ensure_dir ~/.config/nvim
+ensure_dir ~/.config/nvim/lua/custom
+
+# Check if Kickstart is already installed
+if [ ! -d ~/.config/nvim/.git ]; then
+  # Back up any existing config
+  if [ -f ~/.config/nvim/init.lua ] || [ -f ~/.config/nvim/init.vim ]; then
+    BACKUP_DIR=~/.config/nvim.backup.$(date +%Y%m%d%H%M%S)
+    ensure_dir "$BACKUP_DIR"
+    mv ~/.config/nvim/* "$BACKUP_DIR/"
+    echo -e "${YELLOW}Existing Neovim configuration backed up to ${BACKUP_DIR}${NC}"
+  fi
+  
+  # Clone Kickstart Neovim
+  git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
+  check_error "Failed to clone Kickstart Neovim"
+  
+  # Ensure custom directory exists (may have been overwritten by git clone)
+  ensure_dir ~/.config/nvim/lua/custom
+  
+  echo -e "${GREEN}Kickstart Neovim configuration installed successfully${NC}"
 else
-  print_step "Ansible is already installed"
+  echo -e "${YELLOW}Kickstart Neovim configuration already exists${NC}"
 fi
 
-# Download our Ansible playbooks
-print_header "Downloading configuration files"
-print_step "Creating configuration files and directories..."
-
-# Create README explaining the setup
-cat > "$SETUP_DIR/README.md" << 'EOL'
-# WSL Development Environment
-
-This directory contains your development environment setup:
-
-- `ansible/`: Playbooks for installing and configuring tools
-- `configs/`: Configuration files for your development tools
-- `bin/`: Useful scripts and utilities
-- `docs/`: Documentation and guides
-
-## How to Use This Setup
-
-### Installing/Updating Tools
-Run: `./update.sh`
-
-### Customizing Your Environment
-1. Edit files in the `configs/` directory
-2. Run `./update.sh` to apply changes
-
-### Adding New Tools
-1. Edit the playbooks in `ansible/`
-2. Run `./update.sh` to apply changes
-EOL
-
-# Create the Ansible playbooks directory
-mkdir -p "$SETUP_DIR/ansible/roles"
-
-# Create main playbook
-cat > "$SETUP_DIR/ansible/setup.yml" << 'EOL'
----
-# Main playbook for WSL development environment
-- name: Set up WSL development environment
-  hosts: localhost
-  connection: local
-  become: false
-  
-  roles:
-    - core-tools     # Essential development tools
-    - editor         # NeoVim setup with Kickstart
-    - shell          # Zsh with useful plugins
-    - tmux           # Terminal multiplexer
-    - wsl-specific   # WSL-specific optimizations
-    - git-config     # Git configuration
-    - nodejs         # Node.js and npm
-EOL
-
-# Create update script
-cat > "$SETUP_DIR/update.sh" << 'EOL'
-#!/bin/bash
-# Update script for WSL development environment
-
-# Color definitions
-NC='\033[0m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-
-# Error handling function
-check_error() {
-  if [ $? -ne 0 ]; then
-    echo -e "${RED}ERROR: $1${NC}"
-    echo -e "${YELLOW}Would you like to continue anyway? (y/n)${NC}"
-    read -r response
-    if [[ "$response" != "y" ]]; then
-      echo "Setup aborted."
-      exit 1
-    fi
-  fi
-}
-
-# Make sure PATH includes local bin directory
-export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-
-# Navigate to our environment directory
-cd "$(dirname "$0")" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
-
-# Check for custom variables
-if [ -f "config.env" ]; then
-  source config.env
-fi
-
-# Run our Ansible playbook
-echo -e "${BLUE}Updating your development environment...${NC}"
-ansible-playbook -i localhost, ansible/setup.yml
-check_error "Ansible playbook execution failed"
-
-echo -e "${GREEN}Environment updated successfully!${NC}"
-echo -e "${YELLOW}Remember: You can customize any aspect by editing files in the configs/ directory${NC}"
-EOL
-chmod +x "$SETUP_DIR/update.sh"
-
-# Create editor roles - Updated for proper Neovim recognition
-mkdir -p "$SETUP_DIR/ansible/roles/editor/tasks"
-cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
----
-# NeoVim setup with Kickstart configuration
-- name: Ensure NeoVim directories exist
-  file:
-    path: "{{ item }}"
-    state: directory
-  with_items:
-    - "~/.config/nvim"
-    - "~/.config/nvim/lua/custom"
-    - "~/.local/bin"
-
-- name: Check if Neovim exists in PATH
-  shell: command -v nvim || echo "not_found"
-  register: nvim_in_path
-  changed_when: false
-
-- name: Check for Neovim in common locations
-  stat:
-    path: "{{ item }}"
-  register: nvim_locations
-  with_items:
-    - "/usr/local/bin/nvim"
-    - "~/.local/bin/nvim"
-  loop_control:
-    label: "{{ item }}"
-
-- name: Verify Neovim works if it exists
-  shell: >
-    export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && 
-    nvim --version
-  register: nvim_verify
-  ignore_errors: yes
-  changed_when: false
-  when: nvim_in_path.stdout != "not_found"
-
-- name: Notify user that Neovim may not be properly installed
-  debug:
-    msg: >
-      Neovim was found in PATH but might not be working correctly.
-      Consider reinstalling it using the setup script.
-  when: nvim_in_path.stdout != "not_found" and nvim_verify.rc != 0
-
-- name: Check if Kickstart Neovim is already installed
-  stat:
-    path: ~/.config/nvim/.git
-  register: nvim_git
-
-- name: Check if Kickstart Neovim is the current config
-  shell: grep -q "kickstart.nvim" ~/.config/nvim/.git/config 2>/dev/null || echo "not_found"
-  register: kickstart_check
-  ignore_errors: true
-  changed_when: false
-  when: nvim_git.stat.exists
-
-- name: Backup existing Neovim config if not Kickstart
-  shell: mv ~/.config/nvim ~/.config/nvim.backup.$(date +%Y%m%d%H%M%S)
-  when: >
-    not nvim_git.stat.exists or
-    (kickstart_check.stdout is defined and kickstart_check.stdout == "not_found")
-
-- name: Install Kickstart Neovim configuration
-  git:
-    repo: https://github.com/nvim-lua/kickstart.nvim.git
-    dest: ~/.config/nvim
-    depth: 1
-    force: yes
-  when: >
-    not nvim_git.stat.exists or
-    (kickstart_check.stdout is defined and kickstart_check.stdout == "not_found")
-
-- name: Ensure custom directory exists
-  file:
-    path: ~/.config/nvim/lua/custom
-    state: directory
-    mode: '0755'
-
-- name: Copy custom Neovim configuration
-  copy:
-    src: "{{ playbook_dir }}/../configs/nvim/custom/init.lua"
-    dest: "~/.config/nvim/lua/custom/init.lua"
-    force: yes
-EOL
-
-# Create core-tools role
-mkdir -p "$SETUP_DIR/ansible/roles/core-tools/tasks"
-cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
----
-# Essential development tools installation
-- name: Update package cache
-  become: true
-  apt:
-    update_cache: yes
-  
-- name: Install essential development packages
-  become: true
-  apt:
-    name:
-      # Core utilities recommended by ThePrimeagen
-      - ripgrep          # Better grep (rg)
-      - fd-find          # Better find (fd)
-      - fzf              # Fuzzy finder
-      - tmux             # Terminal multiplexer
-      - zsh              # Better shell
-      
-      # Development essentials
-      - build-essential  # Compilation tools
-      - git              # Version control
-      - curl             # Transfer data
-      - wget             # Download files
-      - unzip            # Extract archives
-      - python3-pip      # Python package manager
-      
-      # Additional useful tools
-      - jq               # JSON processor
-      - bat              # Better cat with syntax highlighting
-      - htop             # Interactive process viewer
-      - stow             # Symlink farm manager for configs
-      - ninja-build      # Build system
-      - gettext          # Internationalization utilities
-      - cmake            # Cross-platform build system
-      - pkg-config       # Package compiler/linker metadata tool
-    state: present
-
-- name: Ensure local bin directory exists
-  file:
-    path: ~/.local/bin
-    state: directory
-    mode: '0755'
-
-- name: Create symbolic links for Debian-specific tool names
-  file:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
-    state: link
-    force: yes
-  with_items:
-    - { src: "/usr/bin/fdfind", dest: "~/.local/bin/fd" }
-    - { src: "/usr/bin/batcat", dest: "~/.local/bin/bat" }
-  when: >
-    (item.src == "/usr/bin/fdfind" and lookup('file', '/usr/bin/fdfind', errors='ignore'))
-    or (item.src == "/usr/bin/batcat" and lookup('file', '/usr/bin/batcat', errors='ignore'))
-EOL
-
-# Create shell role
-mkdir -p "$SETUP_DIR/ansible/roles/shell/tasks"
-cat > "$SETUP_DIR/ansible/roles/shell/tasks/main.yml" << 'EOL'
----
-# Setup Zsh with useful plugins
-
-- name: Check if Oh My Zsh is installed
-  stat:
-    path: ~/.oh-my-zsh
-  register: oh_my_zsh_installed
-
-- name: Install Oh My Zsh
-  shell: sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-  when: not oh_my_zsh_installed.stat.exists
-
-- name: Install Zsh plugins
-  git:
-    repo: "{{ item.repo }}"
-    dest: "{{ item.dest }}"
-    depth: 1
-  loop:
-    - { repo: 'https://github.com/zsh-users/zsh-autosuggestions', dest: '~/.oh-my-zsh/custom/plugins/zsh-autosuggestions' }
-    - { repo: 'https://github.com/zsh-users/zsh-syntax-highlighting.git', dest: '~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting' }
-
-- name: Install Zoxide (smart cd command)
-  shell: curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
-  args:
-    creates: ~/.local/bin/zoxide
-
-- name: Copy Zsh configuration
-  template:
-    src: "{{ playbook_dir }}/../configs/zsh/zshrc"
-    dest: ~/.zshrc
-    backup: yes
-EOL
-
-# Create tmux role
-mkdir -p "$SETUP_DIR/ansible/roles/tmux/tasks"
-cat > "$SETUP_DIR/ansible/roles/tmux/tasks/main.yml" << 'EOL'
----
-# Tmux setup with ThePrimeagen-inspired configuration
-
-- name: Check if tmux is installed
-  command: which tmux
-  register: tmux_installed
-  ignore_errors: true
-  changed_when: false
-
-- name: Install tmux
-  become: true
-  apt:
-    name: tmux
-    state: present
-  when: tmux_installed.rc != 0
-
-- name: Copy tmux configuration
-  template:
-    src: "{{ playbook_dir }}/../configs/tmux/tmux.conf"
-    dest: ~/.tmux.conf
-    backup: yes
-EOL
-
-# Create WSL-specific role
-mkdir -p "$SETUP_DIR/ansible/roles/wsl-specific/tasks"
-cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
----
-# WSL-specific optimizations and integrations
-
-- name: Create bin directory
-  file:
-    path: ~/bin
-    state: directory
-    mode: '0755'
-
-- name: Copy WSL utility scripts
-  template:
-    src: "{{ playbook_dir }}/../configs/wsl/{{ item }}"
-    dest: ~/bin/{{ item }}
-    mode: '0755'
-  with_items:
-    - wsl-path-fix.sh
-    - winopen
-    - clip-copy
-
-- name: Get Windows username
-  shell: cmd.exe /c echo %USERNAME% | tr -d '\r\n'
-  register: windows_username
-  changed_when: false
-
-- name: Ensure .wslconfig exists in Windows home
-  template:
-    src: "{{ playbook_dir }}/../configs/wsl/wslconfig"
-    dest: "/mnt/c/Users/{{ windows_username.stdout }}/.wslconfig"
-    backup: yes
-EOL
-
-# Create git-config role
-mkdir -p "$SETUP_DIR/ansible/roles/git-config/tasks"
-cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
----
-# Git configuration setup
-
-- name: Check if git user name is already configured
-  command: git config --global --get user.name
-  register: git_user_name
-  ignore_errors: true
-  changed_when: false
-
-- name: Check if git user email is already configured
-  command: git config --global --get user.email
-  register: git_user_email
-  ignore_errors: true
-  changed_when: false
-
-- name: Get user info for Git configuration
-  block:
-    - name: Ask for git username
-      pause:
-        prompt: "Enter your Git username"
-      register: git_username_input
-      when: git_user_name.rc != 0
-
-    - name: Ask for git email
-      pause:
-        prompt: "Enter your Git email"
-      register: git_email_input
-      when: git_user_email.rc != 0
-  when: git_user_name.rc != 0 or git_user_email.rc != 0
-
-- name: Configure Git
-  block:
-    - name: Set git username
-      command: git config --global user.name "{{ git_username_input.user_input }}"
-      when: git_user_name.rc != 0
-
-    - name: Set git email
-      command: git config --global user.email "{{ git_email_input.user_input }}"
-      when: git_user_email.rc != 0
-  when: git_user_name.rc != 0 or git_user_email.rc != 0
-
-- name: Configure helpful Git defaults
-  command: "{{ item }}"
-  loop:
-    - git config --global core.editor "nvim"
-    - git config --global init.defaultBranch main
-    - git config --global pull.rebase false
-    - git config --global color.ui auto
-    - git config --global push.default simple
-    - git config --global core.autocrlf input
-EOL
-
-# Create nodejs role
-mkdir -p "$SETUP_DIR/ansible/roles/nodejs/tasks"
-cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
----
-# Node.js and npm setup
-
-- name: Check if Node.js is installed
-  command: which node
-  register: node_installed
-  ignore_errors: true
-  changed_when: false
-
-- name: Install Node.js using nvm
-  block:
-    - name: Download nvm
-      shell: >
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
-      args:
-        creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
-
-    - name: Install latest LTS version of Node.js
-      shell: >
-        export NVM_DIR="$HOME/.nvm" && 
-        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
-        nvm install --lts
-      args:
-        executable: /bin/bash
-  when: node_installed.rc != 0
-
-- name: Install global npm packages
-  shell: >
-    export NVM_DIR="$HOME/.nvm" && 
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
-    npm install -g {{ item }}
-  loop:
-    - typescript
-    - eslint
-    - prettier
-  args:
-    executable: /bin/bash
-  when: node_installed.rc != 0 or node_installed.rc == 0
-EOL
-
-# Create configs directory structure
-mkdir -p "$SETUP_DIR/configs/"{nvim/custom,zsh,tmux,wsl,git}
-
-# Create Zsh configuration file
-cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
-# Path to Oh My Zsh installation
-export ZSH="$HOME/.oh-my-zsh"
-
-# Theme - simple but informative
-ZSH_THEME="robbyrussell"
-
-# Plugins - keep minimal but useful
-plugins=(
-  git                      # Git integration
-  zsh-autosuggestions      # Command suggestions as you type
-  zsh-syntax-highlighting  # Syntax highlighting for commands
-  fzf                      # Fuzzy finder
-  tmux                     # Tmux integration
-)
-
-source $ZSH/oh-my-zsh.sh
-
-# Environment setup
-export EDITOR='nvim'
-export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
-
-# NVM setup
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-
-# Initialize zoxide (smart cd command)
-if command -v zoxide >/dev/null; then
-  eval "$(zoxide init zsh)"
-fi
-
-# FZF Configuration
-export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
-export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
-export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
-
-# Aliases - focused on productivity
-alias vim='nvim'
-alias v='nvim'
-alias ls='ls --color=auto'
-alias ll='ls -la'
-alias la='ls -A'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias c='clear'
-
-# Git aliases
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit -m'
-alias gp='git push'
-alias gl='git pull'
-alias glog='git log --oneline --graph'
-
-# Tmux aliases
-alias t='tmux'
-alias ta='tmux attach -t'
-alias tn='tmux new -s'
-alias tl='tmux ls'
-
-# Project navigation
-alias proj='cd ~/dev && cd $(find . -maxdepth 2 -type d -not -path "*/\.*" | fzf)'
-
-# WSL-specific aliases
-alias explorer='explorer.exe'
-alias winopen='~/bin/winopen'
-alias clip='~/bin/clip-copy'
-
-# Fix WSL path issues (use our script)
-source ~/bin/wsl-path-fix.sh
-
-# Edit config function - makes it easy to edit your configs
-editconfig() {
-  local configs=(
-    "zsh:$HOME/dev-env/configs/zsh/zshrc"
-    "tmux:$HOME/dev-env/configs/tmux/tmux.conf"
-    "nvim:$HOME/dev-env/configs/nvim/custom/init.lua"
-    "ansible:$HOME/dev-env/ansible/setup.yml"
-    "git:$HOME/dev-env/configs/git/gitconfig"
-  )
-  
-  local selected=$(printf "%s\n" "${configs[@]}" | cut -d ':' -f 1 | fzf --prompt="Select config to edit: ")
-  
-  if [[ -n $selected ]]; then
-    local file=$(printf "%s\n" "${configs[@]}" | grep "^$selected:" | cut -d ':' -f 2)
-    $EDITOR "$file"
-    
-    echo "Don't forget to run ~/dev-env/update.sh to apply changes"
-  fi
-}
-
-# Add the editconfig function to your command palette
-alias ec='editconfig'
-EOL
-
-# Create tmux configuration
-cat > "$SETUP_DIR/configs/tmux/tmux.conf" << 'EOL'
-# Use Ctrl+a as prefix (easier to reach than Ctrl+b)
-unbind C-b
-set-option -g prefix C-a
-bind-key C-a send-prefix
-
-# Improve colors and terminal compatibility
-set -g default-terminal "screen-256color"
-
-# Start window numbering at 1
-set -g base-index 1
-set -g pane-base-index 1
-set -g renumber-windows on
-
-# Reload config with 'r'
-bind r source-file ~/.tmux.conf \; display "Config reloaded!"
-
-# Split windows with | and - (and keep current path)
-bind | split-window -h -c "#{pane_current_path}"
-bind - split-window -v -c "#{pane_current_path}"
-bind c new-window -c "#{pane_current_path}"
-
-# Better navigation with vim-like keys
-bind h select-pane -L
-bind j select-pane -D
-bind k select-pane -U
-bind l select-pane -R
-
-# Enable mouse support
-set -g mouse on
-
-# Increase scrollback buffer
-set -g history-limit 10000
-
-# Copy mode with vi keys
-setw -g mode-keys vi
-bind-key -T copy-mode-vi v send -X begin-selection
-bind-key -T copy-mode-vi y send -X copy-pipe-and-cancel "clip.exe"
-
-# Fast pane switching
-bind -n M-h select-pane -L
-bind -n M-j select-pane -D
-bind -n M-k select-pane -U
-bind -n M-l select-pane -R
-
-# Session management
-bind S command-prompt -p "New Session:" "new-session -A -s '%%'"
-bind K confirm kill-session
-
-# Status bar - clean and informative
-set -g status-position top
-set -g status-style bg=default
-set -g status-left "#[fg=green]Session: #S #[fg=yellow]#I #[fg=cyan]#P "
-set -g status-left-length 40
-set -g status-right "#[fg=cyan]%d %b %R"
-set -g status-interval 60
-EOL
-
-# Create NeoVim custom configuration
+# Create custom init.lua
+ensure_dir "$SETUP_DIR/configs/nvim/custom"
 cat > "$SETUP_DIR/configs/nvim/custom/init.lua" << 'EOL'
 -- Custom NeoVim configuration extending Kickstart
 -- This is loaded after the main Kickstart configuration
@@ -874,11 +284,604 @@ vim.api.nvim_create_autocmd('FileType', {
 -- -- 3. Set up language-specific settings
 -- 
 -- -- Try adding a line below to see the effect:
--- -- vim.cmd('colorscheme rosepine')
+-- -- vim.cmd('colorscheme tokyonight-night')
 EOL
+check_error "Failed to create custom Neovim configuration file"
+
+# Copy the custom configuration to Neovim
+cp "$SETUP_DIR/configs/nvim/custom/init.lua" ~/.config/nvim/lua/custom/init.lua
+check_error "Failed to copy custom Neovim configuration"
+
+echo -e "${GREEN}Custom Neovim configuration updated${NC}"
+
+# Install Ansible (as recommended by ThePrimeagen for reproducible environments)
+print_header "Setting up Ansible"
+if ! command_exists ansible; then
+  print_step "Installing Ansible..."
+  sudo apt install -y ansible
+  check_error "Failed to install Ansible"
+  echo -e "${GREEN}Ansible installed successfully!${NC}"
+else
+  print_step "Ansible is already installed"
+fi
+
+# Download our Ansible playbooks
+print_header "Creating configuration files"
+print_step "Setting up configuration files and directories..."
+
+# Create README explaining the setup
+cat > "$SETUP_DIR/README.md" << 'EOL'
+# WSL Development Environment
+
+This directory contains your development environment setup:
+
+- `ansible/`: Playbooks for installing and configuring tools
+- `configs/`: Configuration files for your development tools
+- `bin/`: Useful scripts and utilities
+- `docs/`: Documentation and guides
+
+## How to Use This Setup
+
+### Installing/Updating Tools
+Run: `./update.sh`
+
+### Customizing Your Environment
+1. Edit files in the `configs/` directory
+2. Run `./update.sh` to apply changes
+
+### Adding New Tools
+1. Edit the playbooks in `ansible/`
+2. Run `./update.sh` to apply changes
+EOL
+check_error "Failed to create README file"
+
+# Create the Ansible playbooks directory
+ensure_dir "$SETUP_DIR/ansible/roles"
+
+# Create main playbook
+cat > "$SETUP_DIR/ansible/setup.yml" << 'EOL'
+---
+# Main playbook for WSL development environment
+- name: Set up WSL development environment
+  hosts: localhost
+  connection: local
+  become: false
+  
+  roles:
+    - core-tools     # Essential development tools
+    - shell          # Zsh with useful plugins
+    - tmux           # Terminal multiplexer
+    - wsl-specific   # WSL-specific optimizations
+    - git-config     # Git configuration
+    - nodejs         # Node.js and npm
+EOL
+check_error "Failed to create main Ansible playbook"
+
+# Create update script
+cat > "$SETUP_DIR/update.sh" << 'EOL'
+#!/bin/bash
+# Update script for WSL development environment
+
+# Color definitions
+NC='\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+
+# Error handling function
+check_error() {
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}ERROR: $1${NC}"
+    echo -e "${YELLOW}Would you like to continue anyway? (y/n)${NC}"
+    read -r response
+    if [[ "$response" != "y" ]]; then
+      echo "Setup aborted."
+      exit 1
+    fi
+  fi
+}
+
+# Refresh PATH
+refresh_path() {
+  export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
+  hash -r
+}
+
+# Make sure PATH includes local bin directory
+refresh_path
+
+# Navigate to our environment directory
+cd "$(dirname "$0")" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
+
+# Check for custom variables
+if [ -f "config.env" ]; then
+  source config.env
+fi
+
+# Update Neovim configuration
+echo -e "${BLUE}Updating Neovim configuration...${NC}"
+# Ensure directory exists
+mkdir -p ~/.config/nvim/lua/custom
+cp configs/nvim/custom/init.lua ~/.config/nvim/lua/custom/init.lua
+check_error "Failed to update Neovim configuration"
+
+# Update WSL utilities
+echo -e "${BLUE}Updating WSL utilities...${NC}"
+# Ensure bin directory exists
+mkdir -p ~/bin
+
+# Copy and make executable
+cp configs/wsl/wsl-path-fix.sh ~/bin/
+cp configs/wsl/winopen ~/bin/
+cp configs/wsl/clip-copy ~/bin/
+chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
+check_error "Failed to update WSL utilities"
+
+# Run our Ansible playbook
+echo -e "${BLUE}Updating your development environment...${NC}"
+ansible-playbook -i localhost, ansible/setup.yml
+check_error "Ansible playbook execution failed"
+
+echo -e "${GREEN}Environment updated successfully!${NC}"
+echo -e "${YELLOW}Remember: You can customize any aspect by editing files in the configs/ directory${NC}"
+EOL
+check_error "Failed to create update script"
+chmod +x "$SETUP_DIR/update.sh"
+check_error "Failed to make update script executable"
+
+# Create core-tools role
+ensure_dir "$SETUP_DIR/ansible/roles/core-tools/tasks"
+cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
+---
+# Essential development tools installation
+- name: Update package cache
+  become: true
+  apt:
+    update_cache: yes
+  
+- name: Install essential development packages
+  become: true
+  apt:
+    name:
+      # Core utilities
+      - ripgrep          # Better grep (rg)
+      - fd-find          # Better find (fd)
+      - fzf              # Fuzzy finder
+      - tmux             # Terminal multiplexer
+      - zsh              # Better shell
+      
+      # Development essentials
+      - build-essential  # Compilation tools
+      - git              # Version control
+      - curl             # Transfer data
+      - wget             # Download files
+      - unzip            # Extract archives
+      - python3-pip      # Python package manager
+      
+      # Additional useful tools
+      - jq               # JSON processor
+      - bat              # Better cat with syntax highlighting
+      - htop             # Interactive process viewer
+      - stow             # Symlink farm manager for configs
+      - ninja-build      # Build system
+      - gettext          # Internationalization utilities
+      - cmake            # Cross-platform build system
+      - pkg-config       # Package compiler/linker metadata tool
+    state: present
+
+- name: Ensure local bin directory exists
+  file:
+    path: ~/.local/bin
+    state: directory
+    mode: '0755'
+
+- name: Create symbolic links for Debian-specific tool names
+  file:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    state: link
+    force: yes
+  with_items:
+    - { src: "/usr/bin/fdfind", dest: "~/.local/bin/fd" }
+    - { src: "/usr/bin/batcat", dest: "~/.local/bin/bat" }
+  when: >
+    (item.src == "/usr/bin/fdfind" and lookup('file', '/usr/bin/fdfind', errors='ignore'))
+    or (item.src == "/usr/bin/batcat" and lookup('file', '/usr/bin/batcat', errors='ignore'))
+EOL
+check_error "Failed to create core-tools role"
+
+# Create shell role
+ensure_dir "$SETUP_DIR/ansible/roles/shell/tasks"
+cat > "$SETUP_DIR/ansible/roles/shell/tasks/main.yml" << 'EOL'
+---
+# Setup Zsh with useful plugins
+
+- name: Check if Oh My Zsh is installed
+  stat:
+    path: ~/.oh-my-zsh
+  register: oh_my_zsh_installed
+
+- name: Install Oh My Zsh
+  shell: sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+  when: not oh_my_zsh_installed.stat.exists
+
+- name: Install Zsh plugins
+  git:
+    repo: "{{ item.repo }}"
+    dest: "{{ item.dest }}"
+    depth: 1
+  loop:
+    - { repo: 'https://github.com/zsh-users/zsh-autosuggestions', dest: '~/.oh-my-zsh/custom/plugins/zsh-autosuggestions' }
+    - { repo: 'https://github.com/zsh-users/zsh-syntax-highlighting.git', dest: '~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting' }
+
+- name: Install Zoxide (smart cd command)
+  shell: curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+  args:
+    creates: ~/.local/bin/zoxide
+
+- name: Ensure Zsh config directory exists
+  file:
+    path: "{{ playbook_dir }}/../configs/zsh"
+    state: directory
+    mode: '0755'
+
+- name: Copy Zsh configuration
+  template:
+    src: "{{ playbook_dir }}/../configs/zsh/zshrc"
+    dest: ~/.zshrc
+    backup: yes
+EOL
+check_error "Failed to create shell role"
+
+# Create tmux role
+ensure_dir "$SETUP_DIR/ansible/roles/tmux/tasks"
+cat > "$SETUP_DIR/ansible/roles/tmux/tasks/main.yml" << 'EOL'
+---
+# Tmux setup with ThePrimeagen-inspired configuration
+
+- name: Check if tmux is installed
+  command: which tmux
+  register: tmux_installed
+  ignore_errors: true
+  changed_when: false
+
+- name: Install tmux
+  become: true
+  apt:
+    name: tmux
+    state: present
+  when: tmux_installed.rc != 0
+
+- name: Ensure tmux config directory exists
+  file:
+    path: "{{ playbook_dir }}/../configs/tmux"
+    state: directory
+    mode: '0755'
+
+- name: Copy tmux configuration
+  template:
+    src: "{{ playbook_dir }}/../configs/tmux/tmux.conf"
+    dest: ~/.tmux.conf
+    backup: yes
+EOL
+check_error "Failed to create tmux role"
+
+# Create WSL-specific role
+ensure_dir "$SETUP_DIR/ansible/roles/wsl-specific/tasks"
+cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
+---
+# WSL-specific optimizations and integrations
+
+- name: Create bin directory
+  file:
+    path: ~/bin
+    state: directory
+    mode: '0755'
+
+- name: Ensure WSL config directory exists
+  file:
+    path: "{{ playbook_dir }}/../configs/wsl"
+    state: directory
+    mode: '0755'
+
+- name: Copy WSL utility scripts
+  template:
+    src: "{{ playbook_dir }}/../configs/wsl/{{ item }}"
+    dest: ~/bin/{{ item }}
+    mode: '0755'
+  with_items:
+    - wsl-path-fix.sh
+    - winopen
+    - clip-copy
+
+- name: Get Windows username
+  shell: cmd.exe /c echo %USERNAME% | tr -d '\r\n'
+  register: windows_username
+  changed_when: false
+
+- name: Ensure .wslconfig exists in Windows home
+  template:
+    src: "{{ playbook_dir }}/../configs/wsl/wslconfig"
+    dest: "/mnt/c/Users/{{ windows_username.stdout }}/.wslconfig"
+    backup: yes
+  ignore_errors: yes
+EOL
+check_error "Failed to create wsl-specific role"
+
+# Create git-config role
+ensure_dir "$SETUP_DIR/ansible/roles/git-config/tasks"
+cat > "$SETUP_DIR/ansible/roles/git-config/tasks/main.yml" << 'EOL'
+---
+# Git configuration setup
+
+- name: Check if git user name is already configured
+  command: git config --global --get user.name
+  register: git_user_name
+  ignore_errors: true
+  changed_when: false
+
+- name: Check if git user email is already configured
+  command: git config --global --get user.email
+  register: git_user_email
+  ignore_errors: true
+  changed_when: false
+
+- name: Get user info for Git configuration
+  block:
+    - name: Ask for git username
+      pause:
+        prompt: "Enter your Git username"
+      register: git_username_input
+      when: git_user_name.rc != 0
+
+    - name: Ask for git email
+      pause:
+        prompt: "Enter your Git email"
+      register: git_email_input
+      when: git_user_email.rc != 0
+  when: git_user_name.rc != 0 or git_user_email.rc != 0
+
+- name: Configure Git
+  block:
+    - name: Set git username
+      command: git config --global user.name "{{ git_username_input.user_input }}"
+      when: git_user_name.rc != 0
+
+    - name: Set git email
+      command: git config --global user.email "{{ git_email_input.user_input }}"
+      when: git_user_email.rc != 0
+  when: git_user_name.rc != 0 or git_user_email.rc != 0
+
+- name: Ensure git config directory exists
+  file:
+    path: "{{ playbook_dir }}/../configs/git"
+    state: directory
+    mode: '0755'
+
+- name: Configure helpful Git defaults
+  command: "{{ item }}"
+  loop:
+    - git config --global core.editor "nvim"
+    - git config --global init.defaultBranch main
+    - git config --global pull.rebase false
+    - git config --global color.ui auto
+    - git config --global push.default simple
+    - git config --global core.autocrlf input
+EOL
+check_error "Failed to create git-config role"
+
+# Create nodejs role
+ensure_dir "$SETUP_DIR/ansible/roles/nodejs/tasks"
+cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
+---
+# Node.js and npm setup
+
+- name: Check if Node.js is installed
+  command: which node
+  register: node_installed
+  ignore_errors: true
+  changed_when: false
+
+- name: Install Node.js using nvm
+  block:
+    - name: Download nvm
+      shell: >
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+      args:
+        creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
+
+    - name: Install latest LTS version of Node.js
+      shell: >
+        export NVM_DIR="$HOME/.nvm" && 
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
+        nvm install --lts
+      args:
+        executable: /bin/bash
+  when: node_installed.rc != 0
+
+- name: Install global npm packages
+  shell: >
+    export NVM_DIR="$HOME/.nvm" && 
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && 
+    npm install -g {{ item }}
+  loop:
+    - typescript
+    - eslint
+    - prettier
+  args:
+    executable: /bin/bash
+EOL
+check_error "Failed to create nodejs role"
+
+# Create configs directory structure
+ensure_dir "$SETUP_DIR/configs/"{nvim/custom,zsh,tmux,wsl,git}
+
+# Create Zsh configuration file
+cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
+# Path to Oh My Zsh installation
+export ZSH="$HOME/.oh-my-zsh"
+
+# Theme - simple but informative
+ZSH_THEME="robbyrussell"
+
+# Plugins - keep minimal but useful
+plugins=(
+  git                      # Git integration
+  zsh-autosuggestions      # Command suggestions as you type
+  zsh-syntax-highlighting  # Syntax highlighting for commands
+  fzf                      # Fuzzy finder
+  tmux                     # Tmux integration
+)
+
+source $ZSH/oh-my-zsh.sh
+
+# Environment setup
+export EDITOR='nvim'
+export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
+
+# NVM setup
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Initialize zoxide (smart cd command)
+if command -v zoxide >/dev/null; then
+  eval "$(zoxide init zsh)"
+fi
+
+# FZF Configuration
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+
+# Aliases - focused on productivity
+alias vim='nvim'
+alias v='nvim'
+alias ls='ls --color=auto'
+alias ll='ls -la'
+alias la='ls -A'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias c='clear'
+
+# Git aliases
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit -m'
+alias gp='git push'
+alias gl='git pull'
+alias glog='git log --oneline --graph'
+
+# Tmux aliases
+alias t='tmux'
+alias ta='tmux attach -t'
+alias tn='tmux new -s'
+alias tl='tmux ls'
+
+# Project navigation
+alias proj='cd ~/dev && cd $(find . -maxdepth 2 -type d -not -path "*/\.*" | fzf)'
+
+# WSL-specific aliases
+alias explorer='explorer.exe'
+alias winopen='~/bin/winopen'
+alias clip='~/bin/clip-copy'
+
+# Fix WSL path issues (use our script)
+if [ -f ~/bin/wsl-path-fix.sh ]; then
+  source ~/bin/wsl-path-fix.sh
+fi
+
+# Edit config function - makes it easy to edit your configs
+editconfig() {
+  local configs=(
+    "zsh:$HOME/dev-env/configs/zsh/zshrc"
+    "tmux:$HOME/dev-env/configs/tmux/tmux.conf"
+    "nvim:$HOME/dev-env/configs/nvim/custom/init.lua"
+    "ansible:$HOME/dev-env/ansible/setup.yml"
+    "git:$HOME/dev-env/configs/git/gitconfig"
+  )
+  
+  local selected=$(printf "%s\n" "${configs[@]}" | cut -d ':' -f 1 | fzf --prompt="Select config to edit: ")
+  
+  if [[ -n $selected ]]; then
+    local file=$(printf "%s\n" "${configs[@]}" | grep "^$selected:" | cut -d ':' -f 2)
+    if [ -f "$file" ]; then
+      $EDITOR "$file"
+      echo "Don't forget to run ~/dev-env/update.sh to apply changes"
+    else
+      echo "Config file not found: $file"
+    fi
+  fi
+}
+
+# Add the editconfig function to your command palette
+alias ec='editconfig'
+EOL
+check_error "Failed to create zsh configuration"
+
+# Create tmux configuration
+cat > "$SETUP_DIR/configs/tmux/tmux.conf" << 'EOL'
+# Use Ctrl+a as prefix (easier to reach than Ctrl+b)
+unbind C-b
+set-option -g prefix C-a
+bind-key C-a send-prefix
+
+# Improve colors and terminal compatibility
+set -g default-terminal "screen-256color"
+
+# Start window numbering at 1
+set -g base-index 1
+set -g pane-base-index 1
+set -g renumber-windows on
+
+# Reload config with 'r'
+bind r source-file ~/.tmux.conf \; display "Config reloaded!"
+
+# Split windows with | and - (and keep current path)
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+bind c new-window -c "#{pane_current_path}"
+
+# Better navigation with vim-like keys
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+# Enable mouse support
+set -g mouse on
+
+# Increase scrollback buffer
+set -g history-limit 10000
+
+# Copy mode with vi keys
+setw -g mode-keys vi
+bind-key -T copy-mode-vi v send -X begin-selection
+bind-key -T copy-mode-vi y send -X copy-pipe-and-cancel "clip.exe"
+
+# Fast pane switching
+bind -n M-h select-pane -L
+bind -n M-j select-pane -D
+bind -n M-k select-pane -U
+bind -n M-l select-pane -R
+
+# Session management
+bind S command-prompt -p "New Session:" "new-session -A -s '%%'"
+bind K confirm kill-session
+
+# Status bar - clean and informative
+set -g status-position top
+set -g status-style bg=default
+set -g status-left "#[fg=green]Session: #S #[fg=yellow]#I #[fg=cyan]#P "
+set -g status-left-length 40
+set -g status-right "#[fg=cyan]%d %b %R"
+set -g status-interval 60
+EOL
+check_error "Failed to create tmux configuration"
 
 # Create WSL utilities
-mkdir -p "$SETUP_DIR/configs/wsl"
+ensure_dir "$SETUP_DIR/configs/wsl"
 
 # Path fix script
 cat > "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" << 'EOL'
@@ -898,6 +901,8 @@ export PATH="$clean_path"
 unset PYTHONPATH
 unset CLASSPATH
 EOL
+check_error "Failed to create wsl-path-fix.sh"
+chmod +x "$SETUP_DIR/configs/wsl/wsl-path-fix.sh"
 
 # Windows open script
 cat > "$SETUP_DIR/configs/wsl/winopen" << 'EOL'
@@ -908,6 +913,8 @@ path_to_open="${1:-.}"
 windows_path=$(wslpath -w "$(realpath "$path_to_open")")
 explorer.exe "$windows_path"
 EOL
+check_error "Failed to create winopen script"
+chmod +x "$SETUP_DIR/configs/wsl/winopen"
 
 # Clipboard utility
 cat > "$SETUP_DIR/configs/wsl/clip-copy" << 'EOL'
@@ -922,6 +929,8 @@ else
   echo -n "$*" | clip.exe
 fi
 EOL
+check_error "Failed to create clip-copy script"
+chmod +x "$SETUP_DIR/configs/wsl/clip-copy"
 
 # WSL config
 cat > "$SETUP_DIR/configs/wsl/wslconfig" << 'EOL'
@@ -932,6 +941,7 @@ swap=2GB
 localhostForwarding=true
 kernelCommandLine=sysctl.vm.swappiness=10
 EOL
+check_error "Failed to create wslconfig file"
 
 # Create Git config template
 cat > "$SETUP_DIR/configs/git/gitconfig" << 'EOL'
@@ -966,8 +976,58 @@ cat > "$SETUP_DIR/configs/git/gitconfig" << 'EOL'
   visual = !gitk
   hist = log --pretty=format:\"%h %ad | %s%d [%an]\" --graph --date=short
 EOL
+check_error "Failed to create Git config template"
+
+# Create a gitignore_global file
+cat > "$SETUP_DIR/configs/git/gitignore_global" << 'EOL'
+# Global gitignore file
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs and databases
+*.log
+*.sqlite
+
+# Build directories
+/build/
+/dist/
+/out/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Compiled files
+*.o
+*.out
+*.class
+EOL
+check_error "Failed to create global gitignore file"
 
 # Create a guide for editing configs
+ensure_dir "$SETUP_DIR/docs"
 cat > "$SETUP_DIR/docs/editing-configs.md" << 'EOL'
 # How to Edit Your Development Environment
 
@@ -996,7 +1056,28 @@ nvim ~/dev-env/configs/zsh/zshrc
 ```bash
 nvim ~/dev-env/configs/git/gitconfig
 ```
+
+### Editing Neovim Configuration
+```bash
+nvim ~/dev-env/configs/nvim/custom/init.lua
+```
+
+### Editing Tmux Configuration
+```bash
+nvim ~/dev-env/configs/tmux/tmux.conf
+```
+
+## Applying Changes
+
+After making changes to any configuration file, run the update script:
+
+```bash
+~/dev-env/update.sh
+```
+
+This will copy your configurations to the appropriate locations and run the Ansible playbooks.
 EOL
+check_error "Failed to create editing-configs.md"
 
 # Create a development cheatsheet
 cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
@@ -1052,14 +1133,19 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 - `Prefix d` - Detach from session
 - `Prefix r` - Reload config
 EOL
+check_error "Failed to create dev-cheatsheet.md"
 
-# Make the script executable
-chmod +x "$SETUP_DIR/update.sh"
+# Make scripts in ~/bin executable immediately
+cp "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" ~/bin/
+cp "$SETUP_DIR/configs/wsl/winopen" ~/bin/
+cp "$SETUP_DIR/configs/wsl/clip-copy" ~/bin/
+chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
+check_error "Failed to copy and make WSL utilities executable"
 
 print_title "Initial Setup Complete!"
 echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
-echo -e "1. Run the update script to install everything: ${YELLOW}~/dev-env/update.sh${NC}"
+echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
 echo -e "2. After installation completes, restart your terminal"
 echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
 echo -e "4. Read the cheatsheet at: ${YELLOW}~/dev-env/docs/dev-cheatsheet.md${NC}"
