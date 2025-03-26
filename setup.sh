@@ -43,7 +43,7 @@ check_error "Failed to update package lists"
 sudo apt install -y curl wget git python3 python3-pip unzip build-essential
 check_error "Failed to install core dependencies"
 
-# Install Neovim properly
+# Install Neovim using AppImage method
 print_header "Installing Neovim"
 mkdir -p ~/.local/bin
 mkdir -p ~/tools
@@ -52,23 +52,90 @@ mkdir -p ~/tools
 if ! command -v nvim &> /dev/null; then
   echo "Downloading and installing Neovim..."
   
-  # Download the latest stable Neovim release as tar.gz (more reliable than AppImage extraction)
+  # First, install squashfs-tools
+  sudo apt install -y squashfs-tools
+  check_error "Failed to install squashfs-tools"
+  
+  # Download Neovim AppImage
   cd ~/tools
-  wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
-  check_error "Failed to download Neovim"
+  wget -q https://github.com/neovim/neovim/releases/download/stable/nvim.appimage
+  check_error "Failed to download Neovim AppImage"
+  chmod +x nvim.appimage
   
-  # Extract Neovim
-  tar -xzf nvim-linux64.tar.gz
-  check_error "Failed to extract Neovim"
+  # Create temporary directory for extraction
+  mkdir -p ~/nvim-temp
   
-  # Create symbolic link to ensure it's in PATH
-  ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
-  check_error "Failed to create Neovim symbolic link"
+  # Extract the AppImage using the specific method
+  echo "Extracting Neovim AppImage..."
   
-  # Make sure PATH includes ~/.local/bin
+  # Find the offset for SquashFS image
+  offset=$(grep -a -b -m 1 --only-matching '^\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' nvim.appimage | cut -d ':' -f 1)
+  
+  if [ -z "$offset" ]; then
+    echo -e "\033[1;31mError: Could not find SquashFS offset in AppImage\033[0m"
+    echo "Trying fallback installation method..."
+    
+    # Fallback: Try to download the tar.gz version instead
+    wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
+    check_error "Failed to download Neovim tar.gz"
+    
+    tar -xzf nvim-linux64.tar.gz
+    check_error "Failed to extract Neovim tar.gz"
+    
+    ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
+    check_error "Failed to create Neovim symbolic link"
+  else
+    # Continue with 1st method
+    offset=$((offset + 16))
+    
+    # Extract the SquashFS image
+    dd if=nvim.appimage bs=1 skip=$offset of=~/nvim-temp/squashfs.img
+    check_error "Failed to extract SquashFS image from AppImage"
+    
+    # Create directory for extracted files
+    mkdir -p ~/nvim-extracted
+    
+    # Extract the SquashFS filesystem
+    sudo unsquashfs -f -d ~/nvim-extracted ~/nvim-temp/squashfs.img
+    
+    # Check if extraction succeeded
+    if [ $? -ne 0 ]; then
+      echo -e "\033[1;31mError: Failed to extract SquashFS image. Trying fallback installation.\033[0m"
+      
+      # Fallback: Try to download the tar.gz version instead
+      wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
+      check_error "Failed to download Neovim tar.gz"
+      
+      tar -xzf nvim-linux64.tar.gz
+      check_error "Failed to extract Neovim tar.gz"
+      
+      ln -sf ~/tools/nvim-linux64/bin/nvim ~/.local/bin/nvim
+      check_error "Failed to create Neovim symbolic link"
+    else
+      # Move the extracted files to final location
+      sudo mv ~/nvim-extracted /opt/nvim
+      check_error "Failed to move extracted Neovim files"
+      
+      # Create symbolic link
+      sudo ln -sf /opt/nvim/usr/bin/nvim /usr/local/bin/nvim
+      check_error "Failed to create Neovim symbolic link"
+      
+      # Create additional link in local bin
+      ln -sf /usr/local/bin/nvim ~/.local/bin/nvim
+    fi
+    
+    # Clean up temporary files
+    rm -rf ~/nvim-temp
+    rm -rf ~/nvim-extracted
+  fi
+  
+  # Verify installation
+  echo "Verifying Neovim installation..."
   export PATH="$HOME/.local/bin:$PATH"
+  nvim --version
+  check_error "Neovim installation verification failed"
   
-  echo "Neovim installed successfully at ~/.local/bin/nvim"
+  echo "Neovim installed successfully"
   cd "$SETUP_DIR" || { echo "Failed to change directory"; exit 1; }
 else
   echo "Neovim is already installed"
@@ -154,7 +221,7 @@ check_error() {
 }
 
 # Make sure PATH includes local bin directory
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
 # Navigate to our environment directory
 cd "$(dirname "$0")" || { echo "Failed to change directory"; exit 1; }
@@ -187,54 +254,37 @@ cat > "$SETUP_DIR/ansible/roles/editor/tasks/main.yml" << 'EOL'
     - "~/.config/nvim"
     - "~/.config/nvim/lua/custom"
     - "~/.local/bin"
-    - "~/tools"
 
 - name: Check if Neovim exists in PATH
   shell: command -v nvim || echo "not_found"
   register: nvim_in_path
   changed_when: false
 
-- name: Check if Neovim exists in local bin
+- name: Check for Neovim in common locations
   stat:
-    path: "~/.local/bin/nvim"
-  register: nvim_in_local_bin
+    path: "{{ item }}"
+  register: nvim_locations
+  with_items:
+    - "/usr/local/bin/nvim"
+    - "~/.local/bin/nvim"
+  loop_control:
+    label: "{{ item }}"
 
-- name: Install Neovim if not found
-  block:
-    - name: Download latest stable Neovim
-      get_url:
-        url: https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
-        dest: ~/tools/nvim-linux64.tar.gz
-      
-    - name: Remove old Neovim installation if exists
-      file:
-        path: ~/tools/nvim-linux64
-        state: absent
-      
-    - name: Extract Neovim
-      unarchive:
-        src: ~/tools/nvim-linux64.tar.gz
-        dest: ~/tools
-        remote_src: yes
-      
-    - name: Create symbolic link to Neovim
-      file:
-        src: ~/tools/nvim-linux64/bin/nvim
-        dest: ~/.local/bin/nvim
-        state: link
-        force: yes
-      
-    - name: Add ~/.local/bin to PATH
-      lineinfile:
-        path: ~/.bashrc
-        line: 'export PATH="$HOME/.local/bin:$PATH"'
-        create: yes
-      
-    - name: Verify Neovim works
-      shell: ~/.local/bin/nvim --version
-      register: nvim_verify
-      failed_when: nvim_verify.rc != 0
-  when: nvim_in_path.stdout == "not_found" and not nvim_in_local_bin.stat.exists
+- name: Verify Neovim works if it exists
+  shell: >
+    export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && 
+    nvim --version
+  register: nvim_verify
+  ignore_errors: yes
+  changed_when: false
+  when: nvim_in_path.stdout != "not_found"
+
+- name: Notify user that Neovim may not be properly installed
+  debug:
+    msg: >
+      Neovim was found in PATH but might not be working correctly.
+      Consider reinstalling it using the setup script.
+  when: nvim_in_path.stdout != "not_found" and nvim_verify.rc != 0
 
 - name: Check if Kickstart Neovim is already installed
   stat:
@@ -555,7 +605,7 @@ source $ZSH/oh-my-zsh.sh
 
 # Environment setup
 export EDITOR='nvim'
-export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+export PATH="$HOME/.local/bin:/usr/local/bin:$HOME/bin:$PATH"
 
 # NVM setup
 export NVM_DIR="$HOME/.nvm"
