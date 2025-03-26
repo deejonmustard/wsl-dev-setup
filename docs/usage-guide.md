@@ -1,17 +1,5 @@
 # Usage Guide
-
-## Initial Setup
-
-Run the script with:
-
-```bash
-./setup.sh
-
-or:
-
-curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
-
-# Help
+Initial Setup
 
 ## uninstall previous installs 
 wsl --unregister Debian
@@ -27,13 +15,13 @@ wsl.exe --install -d Debian
 ## launch Debian
 wsl.exe -d Debian
 
-*put in username and password*
+*set username and password*
 
-# basic commands
-sudp apt update
-sudp apt upgrade
+# Basic commands
+sudo apt update
+sudo apt upgrade
 sudo apt install curl
 
-# exec
 
+# Run the script with:
 curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
