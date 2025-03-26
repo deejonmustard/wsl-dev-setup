@@ -125,42 +125,16 @@ check_error "Failed to install core dependencies"
 # Make sure PATH includes our local bin directories
 refresh_path
 
-# Install Fastfetch
-print_header "Installing Fastfetch"
-print_step "Building and installing Fastfetch..."
-if ! command_exists fastfetch; then
-  # Create temporary directory for installation
-  TEMP_DIR=$(mktemp -d)
-  check_error "Failed to create temporary directory for Fastfetch installation"
+# Install Neofetch
+print_header "Installing Neofetch"
+print_step "Installing Neofetch..."
+if ! command_exists neofetch; then
+  sudo apt install -y neofetch
+  check_error "Failed to install Neofetch"
   
-  cd "$TEMP_DIR" || { echo -e "${RED}Failed to change directory to $TEMP_DIR${NC}"; exit 1; }
-  
-  # Clone and build fastfetch
-  git clone --depth=1 https://github.com/fastfetch-cli/fastfetch.git
-  check_error "Failed to clone Fastfetch repository"
-  
-  cd fastfetch || { echo -e "${RED}Failed to change directory to fastfetch${NC}"; exit 1; }
-  mkdir -p build
-  cd build || { echo -e "${RED}Failed to create build directory${NC}"; exit 1; }
-  
-  # Build with CMake
-  cmake ..
-  check_error "Failed to configure Fastfetch with CMake"
-  
-  cmake --build . --target fastfetch
-  check_error "Failed to build Fastfetch"
-  
-  # Install
-  sudo cmake --install .
-  check_error "Failed to install Fastfetch"
-  
-  # Clean up
-  cd "$SETUP_DIR" || { echo -e "${RED}Failed to return to $SETUP_DIR${NC}"; exit 1; }
-  rm -rf "$TEMP_DIR"
-  
-  echo -e "${GREEN}Fastfetch installed successfully${NC}"
+  echo -e "${GREEN}Neofetch installed successfully${NC}"
 else
-  print_step "Fastfetch is already installed"
+  print_step "Neofetch is already installed"
 fi
 
 # Install Neovim
@@ -527,6 +501,7 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
       - tmux             # Terminal multiplexer
       - zsh              # Better shell
       - file             # Determine file type
+      - neofetch         # System info display
       
       # Development essentials
       - build-essential  # Compilation tools
@@ -764,7 +739,7 @@ cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create nodejs role"
 
-# Create Zsh configuration file with fastfetch at startup and quick links
+# Create Zsh configuration file with neofetch at startup and quick links
 cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
 # Path to Oh My Zsh installation
 export ZSH="$HOME/.oh-my-zsh"
@@ -802,8 +777,8 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
-# Run fastfetch at startup
-fastfetch
+# Run neofetch at startup
+neofetch
 
 # Print quick links to configuration files and documentation
 print_dev_links() {
@@ -2299,7 +2274,7 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 ## Environment Management
 - `~/dev-env/update.sh` - Update your environment
 - `ec` - Edit your configurations interactively
-- `fastfetch` - Display system information
+- `neofetch` - Display system information
 
 ## Getting Help
 - `man [command]` - Show manual for command
@@ -2308,13 +2283,13 @@ cat > "$SETUP_DIR/docs/dev-cheatsheet.md" << 'EOL'
 EOL
 check_error "Failed to create dev-cheatsheet.md"
 
-# Update .bashrc to use fastfetch instead of neofetch
-if ! grep -q "fastfetch" ~/.bashrc && grep -q "neofetch" ~/.bashrc; then
-  sed -i 's/neofetch/fastfetch/g' ~/.bashrc
-  echo -e "${GREEN}Updated ~/.bashrc to use fastfetch instead of neofetch${NC}"
-elif ! grep -q "fastfetch" ~/.bashrc && ! grep -q "neofetch" ~/.bashrc; then
-  echo -e "\n# Run fastfetch at startup\nfastfetch" >> ~/.bashrc
-  echo -e "${GREEN}Added fastfetch to ~/.bashrc startup${NC}"
+# Update .bashrc to use neofetch instead of fastfetch
+if ! grep -q "neofetch" ~/.bashrc && grep -q "fastfetch" ~/.bashrc; then
+  sed -i 's/fastfetch/neofetch/g' ~/.bashrc
+  echo -e "${GREEN}Updated ~/.bashrc to use neofetch instead of fastfetch${NC}"
+elif ! grep -q "neofetch" ~/.bashrc && ! grep -q "fastfetch" ~/.bashrc; then
+  echo -e "\n# Run neofetch at startup\nneofetch" >> ~/.bashrc
+  echo -e "${GREEN}Added neofetch to ~/.bashrc startup${NC}"
 fi
 
 # Also add PATH to .bashrc (if not already there) to ensure commands are available without Zsh
