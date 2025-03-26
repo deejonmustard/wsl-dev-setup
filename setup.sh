@@ -1,8 +1,3 @@
-# Ultimate WSL Development Environment Setup Script
-
-Here's a complete, beginner-friendly script that combines the structure of your new script with the proper functionality from the old one, focusing on making Neovim work correctly:
-
-```bash
 #!/bin/bash
 
 # Ultimate WSL Development Environment Setup
