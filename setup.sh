@@ -3,16 +3,47 @@
 # Ultimate WSL Development Environment Setup
 # A beginner-friendly, modular development environment for WSL Debian
 
+# Color definitions
+NC='\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+
+# Fancy title function
+print_title() {
+    local title="$1"
+    local border_length=${#title}
+    local border=""
+    
+    for ((i=0; i<border_length+4; i++)); do
+        border+="="
+    done
+    
+    echo -e "${PURPLE}"
+    echo "$border"
+    echo "| $title |"
+    echo "$border"
+    echo -e "${NC}"
+}
+
 # Print colored section headers
 print_header() {
-  echo -e "\n\033[1;36m==== $1 ====\033[0m"
+  echo -e "\n${CYAN}==== $1 ====${NC}"
+}
+
+# Print step information
+print_step() {
+    echo -e "${BLUE}→ $1${NC}"
 }
 
 # Error handling function
 check_error() {
   if [ $? -ne 0 ]; then
-    echo -e "\033[1;31mERROR: $1\033[0m"
-    echo "Would you like to continue anyway? (y/n)"
+    echo -e "${RED}ERROR: $1${NC}"
+    echo -e "${YELLOW}Would you like to continue anyway? (y/n)${NC}"
     read -r response
     if [[ "$response" != "y" ]]; then
       echo "Setup aborted."
@@ -20,37 +51,48 @@ check_error() {
     fi
   fi
 }
+
 SCRIPT_VERSION="0.1.0-beta.2"
-print_header "Welcome to the Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
-echo "This script will set up a developer environment optimized for WSL Debian"
-echo "You can easily modify any part of this setup later"
+print_title "Ultimate WSL Development Environment Setup v$SCRIPT_VERSION"
+echo -e "${GREEN}This script will set up a developer environment optimized for WSL Debian${NC}"
+echo -e "${GREEN}You can easily modify any part of this setup later${NC}"
 
 # Update system
 print_header "Updating System Packages"
-sudo apt update
-sudo apt upgrade -y
-
-# Create our workspace structure
-mkdir -p ~/dev-env/{ansible,configs,bin,docs}
-SETUP_DIR="$HOME/dev-env"
-cd "$SETUP_DIR" || { echo "Failed to change directory"; exit 1; }
-
-# Ensure basic dependencies are installed
-print_header "Installing core dependencies"
+print_step "Updating package lists..."
 sudo apt update
 check_error "Failed to update package lists"
 
+print_step "Upgrading packages..."
+sudo apt upgrade -y
+check_error "Failed to upgrade packages"
+
+# Create our workspace structure
+print_header "Creating Workspace Structure"
+print_step "Setting up directory structure..."
+mkdir -p ~/dev-env/{ansible,configs,bin,docs}
+SETUP_DIR="$HOME/dev-env"
+cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
+
+# Ensure basic dependencies are installed
+print_header "Installing core dependencies"
+print_step "Updating package lists again..."
+sudo apt update
+check_error "Failed to update package lists"
+
+print_step "Installing essential packages..."
 sudo apt install -y curl wget git python3 python3-pip unzip build-essential
 check_error "Failed to install core dependencies"
 
 # Install Neovim using AppImage method
 print_header "Installing Neovim"
+print_step "Creating necessary directories..."
 mkdir -p ~/.local/bin
 mkdir -p ~/tools
 
 # Check if Neovim is already installed
 if ! command -v nvim &> /dev/null; then
-  echo "Downloading and installing Neovim..."
+  print_step "Downloading and installing Neovim..."
   
   # First, install squashfs-tools
   sudo apt install -y squashfs-tools
@@ -58,6 +100,7 @@ if ! command -v nvim &> /dev/null; then
   
   # Download Neovim AppImage
   cd ~/tools
+  print_step "Downloading Neovim AppImage..."
   wget -q https://github.com/neovim/neovim/releases/download/stable/nvim.appimage
   check_error "Failed to download Neovim AppImage"
   chmod +x nvim.appimage
@@ -66,14 +109,14 @@ if ! command -v nvim &> /dev/null; then
   mkdir -p ~/nvim-temp
   
   # Extract the AppImage using the specific method
-  echo "Extracting Neovim AppImage..."
+  print_step "Extracting Neovim AppImage..."
   
   # Find the offset for SquashFS image
   offset=$(grep -a -b -m 1 --only-matching '^\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' nvim.appimage | cut -d ':' -f 1)
   
   if [ -z "$offset" ]; then
-    echo -e "\033[1;31mError: Could not find SquashFS offset in AppImage\033[0m"
-    echo "Trying fallback installation method..."
+    echo -e "${RED}Error: Could not find SquashFS offset in AppImage${NC}"
+    print_step "Trying fallback installation method..."
     
     # Fallback: Try to download the tar.gz version instead
     wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
@@ -100,7 +143,7 @@ if ! command -v nvim &> /dev/null; then
     
     # Check if extraction succeeded
     if [ $? -ne 0 ]; then
-      echo -e "\033[1;31mError: Failed to extract SquashFS image. Trying fallback installation.\033[0m"
+      echo -e "${RED}Error: Failed to extract SquashFS image. Trying fallback installation.${NC}"
       
       # Fallback: Try to download the tar.gz version instead
       wget -q https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
@@ -130,30 +173,31 @@ if ! command -v nvim &> /dev/null; then
   fi
   
   # Verify installation
-  echo "Verifying Neovim installation..."
+  print_step "Verifying Neovim installation..."
   export PATH="$HOME/.local/bin:$PATH"
   nvim --version
   check_error "Neovim installation verification failed"
   
-  echo "Neovim installed successfully"
-  cd "$SETUP_DIR" || { echo "Failed to change directory"; exit 1; }
+  echo -e "${GREEN}Neovim installed successfully${NC}"
+  cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
 else
-  echo "Neovim is already installed"
+  print_step "Neovim is already installed"
 fi
 
 # Install Ansible (as recommended by ThePrimeagen for reproducible environments)
 print_header "Setting up Ansible"
 if ! command -v ansible &> /dev/null; then
-  echo "Installing Ansible..."
+  print_step "Installing Ansible..."
   sudo apt install -y ansible  # System installation via apt
   check_error "Failed to install Ansible"
-  echo "Ansible installed successfully!"
+  echo -e "${GREEN}Ansible installed successfully!${NC}"
 else
-  echo "Ansible is already installed"
+  print_step "Ansible is already installed"
 fi
 
 # Download our Ansible playbooks
 print_header "Downloading configuration files"
+print_step "Creating configuration files and directories..."
 
 # Create README explaining the setup
 cat > "$SETUP_DIR/README.md" << 'EOL'
@@ -207,11 +251,18 @@ cat > "$SETUP_DIR/update.sh" << 'EOL'
 #!/bin/bash
 # Update script for WSL development environment
 
+# Color definitions
+NC='\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+
 # Error handling function
 check_error() {
   if [ $? -ne 0 ]; then
-    echo -e "\033[1;31mERROR: $1\033[0m"
-    echo "Would you like to continue anyway? (y/n)"
+    echo -e "${RED}ERROR: $1${NC}"
+    echo -e "${YELLOW}Would you like to continue anyway? (y/n)${NC}"
     read -r response
     if [[ "$response" != "y" ]]; then
       echo "Setup aborted."
@@ -224,7 +275,7 @@ check_error() {
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
 # Navigate to our environment directory
-cd "$(dirname "$0")" || { echo "Failed to change directory"; exit 1; }
+cd "$(dirname "$0")" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
 
 # Check for custom variables
 if [ -f "config.env" ]; then
@@ -232,12 +283,12 @@ if [ -f "config.env" ]; then
 fi
 
 # Run our Ansible playbook
-echo "Updating your development environment..."
+echo -e "${BLUE}Updating your development environment...${NC}"
 ansible-playbook -i localhost, ansible/setup.yml
 check_error "Ansible playbook execution failed"
 
-echo "Environment updated successfully!"
-echo "Remember: You can customize any aspect by editing files in the configs/ directory"
+echo -e "${GREEN}Environment updated successfully!${NC}"
+echo -e "${YELLOW}Remember: You can customize any aspect by editing files in the configs/ directory${NC}"
 EOL
 chmod +x "$SETUP_DIR/update.sh"
 
@@ -1005,11 +1056,11 @@ EOL
 # Make the script executable
 chmod +x "$SETUP_DIR/update.sh"
 
-print_header "Initial Setup Complete!"
-echo -e "\nYour WSL developer environment is ready to use!"
-echo -e "Next steps:"
-echo "1. Run the update script to install everything: ~/dev-env/update.sh"
-echo "2. After installation completes, restart your terminal"
-echo "3. Consider changing your default shell to Zsh: chsh -s $(which zsh)"
-echo "4. Read the cheatsheet at: ~/dev-env/docs/dev-cheatsheet.md"
-echo -e "\nHappy coding!"
+print_title "Initial Setup Complete!"
+echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
+echo -e "\n${BLUE}Next steps:${NC}"
+echo -e "1. Run the update script to install everything: ${YELLOW}~/dev-env/update.sh${NC}"
+echo -e "2. After installation completes, restart your terminal"
+echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s $(which zsh)${NC}"
+echo -e "4. Read the cheatsheet at: ${YELLOW}~/dev-env/docs/dev-cheatsheet.md${NC}"
+echo -e "\n${GREEN}Happy coding!${NC}"
