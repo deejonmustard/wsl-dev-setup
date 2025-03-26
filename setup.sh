@@ -789,13 +789,13 @@ nvim ~/dev-env/configs/git/gitconfig
 ```
 EOL
 
--- ================= COMMENTS =================
--- This is a good place to add your own customizations as you learn
--- For example:
--- 1. Add custom plugin configurations
--- 2. Define new keymappings for your workflow
--- 3. Set up language-specific settings
-
--- Try adding a line below to see the effect:
--- vim.cmd('colorscheme rosepine')
-EOL
+# ================= COMMENTS =================
+# This is a good place to add your own customizations as you learn
+# -- For example:
+# -- 1. Add custom plugin configurations
+# -- 2. Define new keymappings for your workflow
+# -- 3. Set up language-specific settings
+# 
+# -- Try adding a line below to see the effect:
+# -- vim.cmd('colorscheme rosepine')
+# EOL
