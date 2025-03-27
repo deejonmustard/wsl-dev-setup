@@ -685,71 +685,127 @@ EOL
     print_step "Creating WSL path fix script..."
     cat > "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" << 'EOL'
 #!/bin/bash
-# Optimize PATH in WSL with selective path filtering to avoid conflicts
+# Safe Path Filtering for WSL - Prevents conflicts while keeping Windows tools accessible
 
-# Save original PATH
+# Fix code page issues that can cause blank terminal
+if command -v chcp.com &>/dev/null; then
+    chcp.com 65001 &>/dev/null
+fi
+
+# Backup original PATH for safety
 original_path="$PATH"
 
-# Filter out problematic Windows paths that cause conflicts
-# This is more selective than completely disabling Windows paths
-filtered_path=$(echo "$original_path" | \
-  sed -e 's%:/mnt/c/Program Files/nodejs[^:]*%%g' \
-  -e 's%:/mnt/c/Users/.*/AppData/Roaming/npm%%g' \
-  -e 's%:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*%%g' \
-  -e 's%:/mnt/c/Users/.*/AppData/Roaming/nvm%%g')
+# SAFETY FUNCTION: Fall back to a known good PATH if things break
+safety_fallback() {
+    echo "Path filtering failed, using safe default PATH"
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:$HOME/bin:$HOME/.local/bin:/mnt/c/Windows/system32:/mnt/c/Windows"
+}
 
-# Ensure essential Linux paths are at the front of PATH
-essential_paths="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-user_paths="$HOME/bin:$HOME/.local/bin"
+# Safe path filtering with error handling
+safe_filter_path() {
+    local input_path="$1"
+    local result
+    
+    # Try to filter, but fallback to original if it fails
+    result=$(echo "$input_path" | sed 's|:/mnt/c/Program Files/nodejs[^:]*||g' 2>/dev/null) || return 1
+    result=$(echo "$result" | sed 's|:/mnt/c/Users/.*/AppData/Roaming/npm||g' 2>/dev/null) || return 1
+    result=$(echo "$result" | sed 's|:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*||g' 2>/dev/null) || return 1
+    
+    # Validate result contains essential directories
+    if [[ "$result" != *"/usr/bin"* ]]; then
+        return 1
+    fi
+    
+    echo "$result"
+    return 0
+}
 
-# Add Node.js from NVM if available (highest priority)
-nvm_path=""
-if [ -d "$HOME/.nvm" ]; then
-  NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
-  if [ -n "$NVM_BIN" ]; then
-    nvm_path="$NVM_BIN:"
-  fi
-fi
-
-# Rebuild PATH with Linux paths prioritized
-export PATH="${nvm_path}${user_paths}:${essential_paths}:${filtered_path}"
-
-# Ensure we use the Linux version of common tools that might be duplicated
-# This explicitly overrides any PATH settings for critical commands
-alias git='/usr/bin/git'
-alias python3='/usr/bin/python3'
-
-# Explicitly handle Node.js and npm to fix Claude Code issues
-if [ -d "$HOME/.nvm" ]; then
-  # We use nvm, so make sure we're using its version of node/npm
-  alias node="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node/ 2>/dev/null | sort -r | head -n 1)/bin/node 2>/dev/null || /usr/bin/node"
-  alias npm="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node/ 2>/dev/null | sort -r | head -n 1)/bin/npm 2>/dev/null || /usr/bin/npm"
-  
-  # Also set npm config to ensure it uses Linux
-  if command -v npm >/dev/null 2>&1; then
-    npm config set os linux >/dev/null 2>&1
-  fi
+# Try to filter PATH, fall back to safety if it fails
+filtered_path=$(safe_filter_path "$original_path")
+if [ $? -ne 0 ]; then
+    safety_fallback
 else
-  # Fall back to system node if available
-  if [ -f "/usr/bin/node" ]; then
+    # Ensure essential directories are at the front
+    essential_paths="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    user_paths="$HOME/bin:$HOME/.local/bin"
+    
+    # Add NVM bin to the beginning of PATH if it exists
+    nvm_path=""
+    if [ -d "$HOME/.nvm" ]; then
+        NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
+        if [ -n "$NVM_BIN" ]; then
+            nvm_path="$NVM_BIN:"
+        fi
+    fi
+    
+    # Build the final PATH safely
+    export PATH="${nvm_path}${user_paths}:${essential_paths}:${filtered_path}"
+fi
+
+# Ensure we use Linux versions of critical tools
+if [ -f /usr/bin/git ]; then
+    alias git='/usr/bin/git'
+fi
+
+if [ -f /usr/bin/python3 ]; then
+    alias python3='/usr/bin/python3'
+fi
+
+# Node.js and npm handling with safety checks
+if [ -d "$HOME/.nvm" ]; then
+    # Find latest node version safely
+    NODE_VERSION=$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | sort -r | head -n 1)
+    
+    if [ -n "$NODE_VERSION" ] && [ -f "$HOME/.nvm/versions/node/$NODE_VERSION/bin/node" ]; then
+        # Only create alias if the binary exists
+        alias node="$HOME/.nvm/versions/node/$NODE_VERSION/bin/node"
+        if [ -f "$HOME/.nvm/versions/node/$NODE_VERSION/bin/npm" ]; then
+            alias npm="$HOME/.nvm/versions/node/$NODE_VERSION/bin/npm"
+        fi
+    fi
+    
+    # Set npm config to use Linux if npm is available
+    if command -v npm >/dev/null 2>&1; then
+        npm config set os linux >/dev/null 2>&1
+    fi
+elif [ -f /usr/bin/node ]; then
+    # Use system node if available and nvm isn't set up
     alias node="/usr/bin/node"
-    alias npm="/usr/bin/npm"
-  fi
+    if [ -f /usr/bin/npm ]; then
+        alias npm="/usr/bin/npm"
+    fi
 fi
 
-# Check for Claude Code path issues
+# VS Code integration - ensure 'code' command works
+if [ -f /mnt/c/Program\ Files/Microsoft\ VS\ Code/bin/code ] || [ -f /mnt/c/Program\ Files/Microsoft\ VS\ Code/code.exe ]; then
+    code() {
+        local arg_path="$1"
+        if [ -n "$arg_path" ]; then
+            # Convert path to Windows format if it's a valid path
+            if [ -e "$arg_path" ]; then
+                arg_path=$(wslpath -w "$arg_path")
+            fi
+        else
+            # If no args, use current directory
+            arg_path=$(wslpath -w "$(pwd)")
+        fi
+        /mnt/c/Windows/System32/cmd.exe /c "code $arg_path"
+    }
+fi
+
+# Safety check for Claude Code
 if command -v claude >/dev/null 2>&1; then
-  if [[ "$(which claude)" == *"/mnt/c/"* ]]; then
-    echo "Warning: Claude is using Windows installation. Use 'npm install -g @anthropic-ai/claude-code --no-os-check' to reinstall."
-  fi
+    if [[ "$(which claude)" == *"/mnt/c/"* ]]; then
+        echo "Warning: Claude is using Windows installation. Use 'npm install -g @anthropic-ai/claude-code --no-os-check' to reinstall."
+    fi
 fi
 
-# Verify our Node.js is from WSL, not Windows
+# Final verification that node is from WSL
 if command -v node >/dev/null 2>&1; then
-  if [[ "$(which node)" == *"/mnt/c/"* ]]; then
-    echo "Warning: Using Windows Node.js. This can cause issues with WSL tools like Claude Code."
-    echo "Consider running: source $HOME/dev-env/bin/nvm-init.sh"
-  fi
+    if [[ "$(which node)" == *"/mnt/c/"* ]]; then
+        echo "Warning: Using Windows Node.js. This can cause issues with WSL tools like Claude Code."
+        echo "Consider running: source $HOME/dev-env/bin/nvm-init.sh"
+    fi
 fi
 EOL
     check_error "Failed to create wsl-path-fix.sh"
@@ -1308,6 +1364,148 @@ EOL
     print_success "Claude Code documentation created"
 }
 
+# Create a recovery script that can fix a blank terminal
+create_recovery_script() {
+    print_header "Creating recovery script"
+    print_step "Creating a recovery script in case of terminal issues..."
+    
+    # Create a recovery script that can be run from Windows to fix terminal issues
+    RECOVERY_DIR="/mnt/c/wsl-recovery"
+    mkdir -p "$RECOVERY_DIR"
+    
+    cat > "$RECOVERY_DIR/fix-terminal.sh" << 'EOFRECOVERY'
+#!/bin/bash
+# WSL Terminal Recovery Script
+# If you're seeing a blank terminal, run this from Windows PowerShell with:
+# wsl -d Debian -u root bash /mnt/c/wsl-recovery/fix-terminal.sh
+
+# Reset user's bashrc to working state
+USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
+if [ -f "$USER_HOME/.bashrc.bak" ]; then
+    cp "$USER_HOME/.bashrc.bak" "$USER_HOME/.bashrc"
+else
+    # Create minimal working bashrc
+    cat > "$USER_HOME/.bashrc" << 'EOL'
+# Basic .bashrc that should work reliably
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/bin:$HOME/.local/bin"
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+    . /etc/bashrc
+fi
+
+# Enable bash completion
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+
+# Basic prompt
+PS1='\u@\h:\w\$ '
+
+# Fix code page issues that can cause blank terminal
+if command -v chcp.com &>/dev/null; then
+    chcp.com 65001 &>/dev/null
+fi
+EOL
+fi
+
+# Fix ownership
+chown $SUDO_USER:$SUDO_USER "$USER_HOME/.bashrc"
+
+# Create a note about what happened
+echo "Terminal has been reset to a basic working state. Your previous configuration was backed up." > "$USER_HOME/TERMINAL_WAS_RESET.txt"
+echo "Run the ~/dev-env/update.sh script to restore the full development environment with safer settings." >> "$USER_HOME/TERMINAL_WAS_RESET.txt"
+chown $SUDO_USER:$SUDO_USER "$USER_HOME/TERMINAL_WAS_RESET.txt"
+
+echo "Terminal has been reset. Please restart your WSL session."
+EOFRECOVERY
+    
+    chmod +x "$RECOVERY_DIR/fix-terminal.sh"
+    check_error "Failed to create recovery script"
+    
+    # Create a Windows batch file to run the recovery script easily
+    cat > "$RECOVERY_DIR/FixWSLTerminal.bat" << 'EOFBAT'
+@echo off
+echo WSL Terminal Recovery Tool
+echo.
+echo This will reset your WSL terminal if it's blank or not functioning properly.
+echo.
+pause
+wsl --shutdown
+wsl -d Debian -u root bash /mnt/c/wsl-recovery/fix-terminal.sh
+echo.
+echo Process completed. Please restart your WSL terminal.
+pause
+EOFBAT
+    
+    print_success "Recovery script created at $RECOVERY_DIR"
+    print_warning "If you experience a blank terminal after restart, run C:\\wsl-recovery\\FixWSLTerminal.bat from Windows"
+}
+
+# Create a PowerShell shortcut to launch WSL with a minimal working configuration
+create_windows_shortcut() {
+    print_header "Creating Windows shortcut for safe WSL launch"
+    print_step "Creating a Windows shortcut to safely launch WSL..."
+    
+    # Get Windows username
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    
+    # Create PowerShell script in Windows Desktop
+    DESKTOP_DIR="/mnt/c/Users/$WIN_USER/Desktop"
+    if [ -d "$DESKTOP_DIR" ]; then
+        cat > "$DESKTOP_DIR/Launch-WSL-Safe.ps1" << 'EOL'
+# PowerShell script to launch WSL with a minimal working configuration
+Write-Host "Launching WSL in safe mode..." -ForegroundColor Green
+
+# Shutdown WSL first to ensure clean state
+wsl --shutdown
+
+# Set the environment variable to use a minimal bashrc
+$env:WSL_SAFE_MODE = "1"
+
+# Launch WSL with the environment variable 
+wsl -e bash -c '
+if [ "$WSL_SAFE_MODE" = "1" ]; then
+    echo "WSL Safe Mode Activated"
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/bin:$HOME/.local/bin"
+    
+    # Fix codepage
+    if command -v chcp.com &>/dev/null; then
+        chcp.com 65001 &>/dev/null
+    fi
+    
+    # Override PS1 to indicate safe mode
+    export PS1="\[\e[33m\][SAFE MODE]\[\e[0m\] \u@\h:\w\$ "
+    
+    # Instructions
+    echo ""
+    echo "You are now in WSL Safe Mode with a minimal working configuration."
+    echo "To recover your normal environment, run: ~/dev-env/update.sh"
+    echo ""
+    
+    # Start bash interactive shell
+    exec bash
+fi
+'
+
+# Keep PowerShell window open
+Read-Host "Press Enter to exit"
+EOL
+        
+        # Create a shortcut to run the PowerShell script
+        cat > "$DESKTOP_DIR/WSL-Safe-Mode.bat" << EOL
+@echo off
+echo Launching WSL in Safe Mode...
+powershell.exe -ExecutionPolicy Bypass -File "%USERPROFILE%\Desktop\Launch-WSL-Safe.ps1"
+EOL
+        
+        print_success "Windows shortcuts created on desktop: WSL-Safe-Mode.bat"
+        print_warning "If you experience a blank terminal, run WSL-Safe-Mode.bat from your Windows desktop"
+    else
+        print_warning "Couldn't create Windows shortcut. Windows desktop not found."
+    fi
+}
+
 # Create update script
 create_update_script() {
     print_header "Creating update script"
@@ -1495,8 +1693,6 @@ ENDOFFILE
 display_completion_message() {
     print_title "Setup Complete!"
     echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
-    echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
-    echo -e "  ${YELLOW}source ~/.bashrc${NC}"
     
     echo -e "\n${BLUE}Path Compatibility:${NC}"
     echo -e "  ${CYAN}We've used a selective path filtering approach that keeps Windows commands${NC}"
@@ -1510,15 +1706,83 @@ display_completion_message() {
     echo -e "4. ${CYAN}Read the beginner's guide:${NC} ${YELLOW}nvim ~/dev-env/docs/beginners-guide.md${NC}"
     echo -e "5. ${CYAN}Claude Code AI assistant${NC} - Just type ${YELLOW}claude${NC} in your project directory"
     
-    echo -e "\n${BLUE}Next steps:${NC}"
-    echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
-    echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
-    echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s \$(which zsh)${NC}"
-    echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide.md${NC}"
-    echo -e "5. Authorize Claude Code: ${YELLOW}claude auth login${NC}"
+    echo -e "\n${BLUE}In case of issues:${NC}"
+    echo -e "  ${YELLOW}If you see a blank terminal after restart, run C:\\wsl-recovery\\FixWSLTerminal.bat${NC}"
+    echo -e "  ${YELLOW}from Windows to recover your terminal${NC}"
     
     echo -e "\n${PURPLE}Neovim has been configured with a pure black Rose Pine theme!${NC}"
     echo -e "\n${GREEN}Happy learning and coding!${NC}"
+}
+
+# Modify how we handle PATH filtering to be safer
+safer_path_filter() {
+    print_header "Setting up safe PATH filtering"
+    
+    # Back up original .bashrc before modifying it
+    if [ ! -f ~/.bashrc.bak ]; then
+        cp ~/.bashrc ~/.bashrc.bak
+        check_error "Failed to backup .bashrc"
+    fi
+    
+    # Add codepage fix to handle potential blank terminal issues
+    print_step "Adding codepage configuration to prevent blank terminal..."
+    if ! grep -q "Fix codepage for WSL terminal" ~/.bashrc; then
+        cat >> ~/.bashrc << 'EOFCODEPAGE'
+
+# Fix codepage for WSL terminal (prevents blank terminal issues)
+if command -v chcp.com &>/dev/null; then
+    chcp.com 65001 &>/dev/null
+fi
+EOFCODEPAGE
+        check_error "Failed to add codepage fix to .bashrc"
+    fi
+    
+    # Use a safer approach for PATH filtering with try/catch equivalent
+    print_step "Setting up safer PATH filtering..."
+    if ! grep -q "WSL-DEV-SETUP PATH FILTER" ~/.bashrc; then
+        cat >> ~/.bashrc << 'EOFPATHFILTER'
+
+# WSL-DEV-SETUP PATH FILTER - SAFE VERSION
+# This block uses a safer approach to filter Windows paths that can cause conflicts
+wsl_path_filter() {
+    # Store the original PATH
+    local original_path="$PATH"
+    local filtered_path="$PATH"
+    
+    # Try to filter problematic Windows paths
+    filtered_path=$(echo "$filtered_path" | sed 's|:/mnt/c/Program Files/nodejs[^:]*||g' 2>/dev/null) || return 1
+    filtered_path=$(echo "$filtered_path" | sed 's|:/mnt/c/Users/.*/AppData/Roaming/npm||g' 2>/dev/null) || return 1
+    filtered_path=$(echo "$filtered_path" | sed 's|:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*||g' 2>/dev/null) || return 1
+    
+    # Only use the filtered path if it's not empty and contains basic system directories
+    if [[ "$filtered_path" == *"/usr/bin"* ]]; then
+        export PATH="$filtered_path"
+    else
+        # If something went wrong, use a safe default path
+        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:$HOME/bin:$HOME/.local/bin:/mnt/c/Windows/system32:/mnt/c/Windows"
+    fi
+    
+    # Add NVM bin to the beginning of PATH if it exists
+    if [ -d "$HOME/.nvm" ]; then
+        local NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
+        if [ -n "$NVM_BIN" ]; then
+            export PATH="$NVM_BIN:$PATH"
+        fi
+    fi
+}
+
+# Apply the path filter safely
+wsl_path_filter
+
+# Set npm to use Linux mode
+if command -v npm >/dev/null 2>&1; then
+    npm config set os linux >/dev/null 2>&1
+fi
+EOFPATHFILTER
+        check_error "Failed to add safe PATH filter to .bashrc"
+    fi
+    
+    print_success "Safe PATH filtering configured"
 }
 
 # --- Script execution ---
@@ -1567,5 +1831,21 @@ create_claude_code_docs
 # Create update script
 create_update_script
 
+# Create a recovery script in case of terminal issues
+create_recovery_script
+
+# Create a Windows shortcut for safe WSL launch
+create_windows_shortcut
+
+# Apply safer path filtering that won't break the terminal
+safer_path_filter
+
 # Final setup and display completion message
 display_completion_message
+
+# Run the update script automatically
+echo -e "\n${BLUE}Running update script to finalize setup...${NC}"
+cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory to $SETUP_DIR${NC}"; exit 1; }
+bash ./update.sh
+
+echo -e "\n${GREEN}Installation is complete! You can safely close and reopen your terminal.${NC}"
