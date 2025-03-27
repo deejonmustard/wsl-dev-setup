@@ -685,39 +685,37 @@ EOL
     print_step "Creating WSL path fix script..."
     cat > "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" << 'EOL'
 #!/bin/bash
-# Optimize PATH in WSL to prioritize Linux binaries and improve performance
+# Optimize PATH in WSL with selective path filtering to avoid conflicts
 
-# Save original PATH temporarily
+# Save original PATH
 original_path="$PATH"
 
-# Start with essential Linux paths
-clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Filter out problematic Windows paths that cause conflicts
+# This is more selective than completely disabling Windows paths
+filtered_path=$(echo "$original_path" | \
+  sed -e 's%:/mnt/c/Program Files/nodejs[^:]*%%g' \
+  -e 's%:/mnt/c/Users/.*/AppData/Roaming/npm%%g' \
+  -e 's%:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*%%g' \
+  -e 's%:/mnt/c/Users/.*/AppData/Roaming/nvm%%g')
 
-# Add user bin directories
-clean_path="$HOME/bin:$HOME/.local/bin:$clean_path"
+# Ensure essential Linux paths are at the front of PATH
+essential_paths="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+user_paths="$HOME/bin:$HOME/.local/bin"
 
 # Add Node.js from NVM if available (highest priority)
+nvm_path=""
 if [ -d "$HOME/.nvm" ]; then
   NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
   if [ -n "$NVM_BIN" ]; then
-    clean_path="$NVM_BIN:$clean_path"
+    nvm_path="$NVM_BIN:"
   fi
 fi
 
-# Add only essential Windows paths at the end
-# This ensures Linux tools are prioritized over Windows versions
-clean_path="$clean_path:/mnt/c/Windows/System32"
-
-# Export the optimized PATH
-export PATH="$clean_path"
-
-# Also unset any Windows variables that might cause issues
-unset PYTHONPATH
-unset CLASSPATH
+# Rebuild PATH with Linux paths prioritized
+export PATH="${nvm_path}${user_paths}:${essential_paths}:${filtered_path}"
 
 # Ensure we use the Linux version of common tools that might be duplicated
 # This explicitly overrides any PATH settings for critical commands
-alias neofetch='/usr/bin/neofetch'
 alias git='/usr/bin/git'
 alias python3='/usr/bin/python3'
 
@@ -739,7 +737,7 @@ else
   fi
 fi
 
-# Fix Claude Code if it's installed but has path issues
+# Check for Claude Code path issues
 if command -v claude >/dev/null 2>&1; then
   if [[ "$(which claude)" == *"/mnt/c/"* ]]; then
     echo "Warning: Claude is using Windows installation. Use 'npm install -g @anthropic-ai/claude-code --no-os-check' to reinstall."
@@ -1059,29 +1057,26 @@ EOFINNER
     chmod +x "$SETUP_DIR/bin/nvm-init.sh"
     check_error "Failed to create NVM initialization script"
 
-    # Create the /etc/wsl.conf file to prevent Windows path interference
-    if [ ! -f "/etc/wsl.conf" ]; then
-        print_step "Creating WSL configuration to prevent path conflicts..."
-        # We'll create a temporary file and use sudo to move it
-        cat > /tmp/wsl.conf << 'EOFINNER'
-[interop]
-appendWindowsPath = false
-EOFINNER
-        sudo mv /tmp/wsl.conf /etc/wsl.conf
-        check_error "Failed to create /etc/wsl.conf"
-        print_warning "You will need to restart WSL after installation with 'wsl --shutdown' for the path changes to take effect"
-    fi
-
-    # Add specific PATH fix for Node.js to .bashrc
-    if ! grep -q "Remove Windows Node.js from PATH" ~/.bashrc; then
-        print_step "Adding Node.js path fix to ~/.bashrc..."
+    # Add specific PATH filter for Node.js to .bashrc instead of changing wsl.conf
+    if ! grep -q "Filter out Windows Node.js from PATH" ~/.bashrc; then
+        print_step "Adding Node.js path filter to ~/.bashrc..."
         cat >> ~/.bashrc << 'EOFINNER'
 
-# Remove Windows Node.js from PATH to prevent conflicts
-PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs%%')
-PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs/%%')
+# Filter out Windows Node.js from PATH to prevent conflicts
+# This is a safer approach than disabling all Windows paths
+PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs%%g')
+PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs/%%g')
+PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Users/.*/AppData/Roaming/npm%%g')
+
+# Ensure WSL Node.js is used
+if [ -d "$HOME/.nvm" ]; then
+  NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
+  if [ -n "$NVM_BIN" ]; then
+    export PATH="$NVM_BIN:$PATH"
+  fi
+fi
 EOFINNER
-        check_error "Failed to update .bashrc with Node.js path fix"
+        check_error "Failed to update .bashrc with Node.js path filter"
     fi
     
     print_success "Node.js environment configured successfully"
@@ -1118,8 +1113,17 @@ setup_claude_code() {
         # Check again
         NODE_PATH=$(which node)
         if [[ "$NODE_PATH" == *"/mnt/c/"* ]]; then
-            print_error "Still using Windows Node.js. Please restart WSL with 'wsl --shutdown' and run this script again."
-            return 1
+            print_error "Still using Windows Node.js. Applying selective path filter..."
+            # Apply path filter directly
+            PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs[^:]*%%g')
+            PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Users/.*/AppData/Roaming/npm%%g')
+            
+            # Try one more time
+            NODE_PATH=$(which node)
+            if [[ "$NODE_PATH" == *"/mnt/c/"* ]]; then
+                print_error "Unable to use WSL Node.js. Please run setup again after a terminal restart."
+                return 1
+            fi
         fi
     fi
     
@@ -1159,18 +1163,17 @@ EOFHELP
 
 Troubleshooting Claude Code in WSL:
 
-1. Restart WSL completely: 
-   - In PowerShell/CMD run: wsl --shutdown
+1. Check your Node.js path:
+   - Run: which node
+   - It should show a Linux path like /home/username/.nvm/... not a Windows path (/mnt/c/).
 
 2. OS/platform detection issues:
    - Run: npm config set os linux 
    - Install with: npm install -g @anthropic-ai/claude-code --force --no-os-check
 
-3. Node not found errors:
-   - If you see "exec: node: not found" when running claude, check which version you're using:
-   - Run: which node
-   - If it points to /mnt/c/, you're using Windows Node instead of Linux Node
-   - Fix with: source ~/dev-env/bin/nvm-init.sh
+3. Path conflicts:
+   - Run: source ~/dev-env/bin/nvm-init.sh
+   - This script prioritizes the Linux Node.js installation in your PATH
 
 See documentation: https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview
 EOFTROUBLE
@@ -1268,6 +1271,11 @@ If you see "exec: node: not found" when running claude:
    source ~/dev-env/bin/nvm-init.sh
    ```
 
+3. Apply the path fix script:
+   ```bash
+   source ~/bin/wsl-path-fix.sh
+   ```
+
 ### OS Detection Issues
 
 If Claude Code fails to install or run due to platform issues:
@@ -1282,16 +1290,14 @@ If Claude Code fails to install or run due to platform issues:
    npm install -g @anthropic-ai/claude-code --force --no-os-check
    ```
 
-### WSL Configuration
+### WSL Path Configuration
 
-For optimal performance:
+Our setup uses selective path filtering that:
+- Keeps Windows tools accessible (like `code .` for VS Code)
+- Prevents conflicts with Node.js by filtering Windows Node.js paths
+- Prioritizes Linux tools over Windows equivalents
 
-1. Keep files in the Linux filesystem (not in /mnt/c)
-2. Make sure your WSL configuration prevents Windows path interference:
-   ```bash
-   cat /etc/wsl.conf
-   # Should show: [interop] appendWindowsPath = false
-   ```
+You don't need to restart WSL after installation, and Windows tools will still work!
 
 ## For More Information
 
@@ -1491,6 +1497,11 @@ display_completion_message() {
     echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
     echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
     echo -e "  ${YELLOW}source ~/.bashrc${NC}"
+    
+    echo -e "\n${BLUE}Path Compatibility:${NC}"
+    echo -e "  ${CYAN}We've used a selective path filtering approach that keeps Windows commands${NC}"
+    echo -e "  ${CYAN}accessible while preventing conflicts with Node.js and npm.${NC}"
+    echo -e "  ${CYAN}This means 'code .' and other Windows commands will still work!${NC}"
     
     echo -e "\n${BLUE}Beginner-Friendly Features:${NC}"
     echo -e "1. ${CYAN}Interactive startup screen${NC} - Just type ${YELLOW}nvim${NC} to see it"
