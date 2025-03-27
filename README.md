@@ -1,5 +1,21 @@
 # WSL Development Environment Setup
 
+```
+__        _______ _      _   _ ______     ______      _____  __  __   ____  _______        __
+\ \      / / ____| |    | \ | | ____|   / ___\ \    / /_ _| \ \/ /  | __ )|_   _\ \      / /
+ \ \ /\ / /|  _| | |    |  \| |  _|     \___ \\ \  / / | |   \  /   |  _ \  | |  \ \ /\ / / 
+  \ V  V / | |___| |___ | |\  | |___     ___) |\ \/ /  | |   /  \   | |_) | | |   \ V  V /  
+   \_/\_/  |_____|_____|_| \_|_____|   |____/  \__/  |___| /_/\_\  |____/  |_|    \_/\_/   
+                                                                                            
+
+```
+__        _______ _     _   _ _______ _____     _____ __  __   ____  _______        __
+\ \      / / ____| |   | \ | | ____\ \   / /   | __ )_  \/  | |  _ \__  /\ \      / /
+ \ \ /\ / /|  _| | |   |  \| |  _|  \ \ / /    |  _ \| |\/| | | |_) |/ /  \ \ /\ / / 
+  \ V  V / | |___| |__ | |\  | |___  \ V /     | |_) | |  | | |  _ </ /_   \ V  V /  
+   \_/\_/  |_____|_____|_| \_|_____|  \_/      |____/|_|  |_| |_| \_\____|   \_/\_/   
+                                                                                      
+
 A simple script to set up a beginner-friendly development environment for WSL Debian.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -36,23 +52,11 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 - **Claude Code**: AI assistant for coding
 - **WSL Utilities**: Helper scripts for Windows integration
 
-## Documentation
-
-- [Usage Guide](docs/usage-guide.md) - Detailed instructions for setup and usage
-- [CHANGELOG](CHANGELOG.md) - Version history and changes
-- [CONTRIBUTING](CONTRIBUTING.md) - Guidelines for contributing to this project
-
 ## Repository Structure
 
 ```
 wsl-dev-setup/
-├── docs/                # Documentation files
-│   └── usage-guide.md   # Detailed usage instructions
-├── .github/             # GitHub-specific files
-│   └── workflows/       # GitHub Actions workflow definitions
 ├── .gitignore           # Git ignore rules
-├── CHANGELOG.md         # Version history
-├── CONTRIBUTING.md      # Contributing guidelines
 ├── LICENSE              # MIT License
 ├── README.md            # This file
 └── setup.sh             # Main setup script
