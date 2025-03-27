@@ -11,6 +11,28 @@
 .DS_Store
 Thumbs.db
 
+# WSL and script specific files
+.bash_history
+.zsh_history
+.zcompdump*
+.npm/
+.node_repl_history
+.python_history
+.lesshst
+.viminfo
+.wget-hsts
+.ssh/
+.gnupg/
+
+# Neovim
+.netrwhist
+
+# Ansible
+*.retry
+
+# Temp files that might be created during script execution
+*.log
+
 # Environment specific files
 .env
 .env.local
@@ -48,20 +70,8 @@ wheels/
 *.egg
 
 # User-specific files
-.bash_history
-.zsh_history
-.zcompdump*
-.npm/
-.node_repl_history
-.python_history
 .lesshst
 .viminfo
-.wget-hsts
-.ssh/
-.gnupg/
-
-# Neovim
-.netrwhist
 
 # Testing and coverage
 .coverage
@@ -70,7 +80,4 @@ htmlcov/
 .nox/
 coverage/
 .hypothesis/
-.pytest_cache/
-
-# Ansible
-*.retry 
+.pytest_cache/ 

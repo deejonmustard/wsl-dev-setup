@@ -108,7 +108,7 @@ update_system() {
     if [ $? -ne 0 ]; then
         print_error "Failed to upgrade packages"
         return 1
-    }
+    fi
     
     print_success "System packages updated successfully"
     return 0
