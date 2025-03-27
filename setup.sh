@@ -160,6 +160,42 @@ install_core_deps() {
     refresh_path
 }
 
+# Configure WSL for proper permissions and performance
+configure_wsl() {
+    print_header "Configuring WSL"
+    print_step "Setting up WSL configuration..."
+    
+    # Create /etc/wsl.conf with proper settings if it doesn't exist or needs updating
+    if [ ! -f /etc/wsl.conf ] || ! grep -q "metadata" /etc/wsl.conf; then
+        print_step "Creating WSL configuration file..."
+        
+        # Write to a temporary file first
+        cat > /tmp/wsl.conf << 'EOL'
+[automount]
+enabled = true
+options = "metadata,uid=1000,gid=1000,umask=022"
+mountFsTab = true
+
+[network]
+generateResolvConf = true
+
+[interop]
+enabled = true
+appendWindowsPath = true
+EOL
+        
+        # Use sudo to move the file to /etc
+        sudo mv /tmp/wsl.conf /etc/wsl.conf
+        check_error "Failed to create WSL configuration file"
+        
+        print_success "WSL configuration updated"
+        print_warning "You'll need to restart WSL for these changes to take effect"
+        print_warning "Run 'wsl --shutdown' from PowerShell after setup completes"
+    else
+        print_step "WSL already configured properly"
+    fi
+}
+
 # Install Neofetch for system information display
 install_neofetch() {
     print_header "Installing Neofetch"
@@ -666,6 +702,7 @@ setup_wsl_utilities() {
     - wsl-path-fix.sh
     - winopen
     - clip-copy
+    - fix-vscode-permissions.sh
 
 - name: Get Windows username
   shell: cmd.exe /c echo %USERNAME% | tr -d '\r\n'
@@ -810,6 +847,87 @@ fi
 EOL
     check_error "Failed to create wsl-path-fix.sh"
     chmod +x "$SETUP_DIR/configs/wsl/wsl-path-fix.sh"
+
+    # VS Code permission fix script
+    print_step "Creating VS Code permission fix script..."
+    cat > "$SETUP_DIR/configs/wsl/fix-vscode-permissions.sh" << 'EOL'
+#!/bin/bash
+# Fix VS Code permissions for WSL integration
+
+echo "Fixing VS Code permissions for WSL..."
+
+# Check if VS Code is installed in common locations
+VS_CODE_PATHS=(
+  "/mnt/c/Program Files/Microsoft VS Code/bin/code"
+  "/mnt/c/Program Files/Microsoft VS Code/code.exe"
+  "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/bin/code"
+  "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/code.exe"
+)
+
+# Function to test if 'code' command works
+test_code_command() {
+  echo "Testing 'code' command..."
+  code --version >/dev/null 2>&1
+  return $?
+}
+
+# First, try to use the code command directly with a workaround
+if ! test_code_command; then
+  echo "Creating a 'code' wrapper function in your shell profile..."
+  
+  # Add to both bash and zsh profiles
+  for profile in ~/.bashrc ~/.zshrc; do
+    if [ -f "$profile" ]; then
+      # Check if the function already exists
+      if ! grep -q "function code()" "$profile"; then
+        cat >> "$profile" << 'EOF'
+
+# VS Code wrapper function to handle WSL permission issues
+function code() {
+  local arg_path="$1"
+  if [ -n "$arg_path" ]; then
+    # Convert path to Windows format if it's a valid path
+    if [ -e "$arg_path" ]; then
+      arg_path=$(wslpath -w "$arg_path")
+    fi
+  else
+    # If no args, use current directory
+    arg_path=$(wslpath -w "$(pwd)")
+  fi
+  cmd.exe /c "code $arg_path" >/dev/null 2>&1
+}
+EOF
+        echo "Added VS Code wrapper to $profile"
+      fi
+    fi
+  done
+  
+  # Create a local bin version too
+  mkdir -p ~/.local/bin
+  cat > ~/.local/bin/code << 'EOF'
+#!/bin/bash
+# VS Code wrapper script to handle WSL permission issues
+arg_path="$1"
+if [ -n "$arg_path" ]; then
+  # Convert path to Windows format if it's a valid path
+  if [ -e "$arg_path" ]; then
+    arg_path=$(wslpath -w "$arg_path")
+  fi
+else
+  # If no args, use current directory
+  arg_path=$(wslpath -w "$(pwd)")
+fi
+cmd.exe /c "code $arg_path" >/dev/null 2>&1
+EOF
+  chmod +x ~/.local/bin/code
+  echo "Created standalone VS Code wrapper in ~/.local/bin/code"
+fi
+
+echo "VS Code permission fixes applied. Please restart your terminal."
+echo "Use 'code .' to open VSCode in the current directory"
+EOL
+    chmod +x "$SETUP_DIR/configs/wsl/fix-vscode-permissions.sh"
+    check_error "Failed to create VS Code permission fix script"
 
     # Windows open script
     print_step "Creating winopen utility..."
@@ -1369,23 +1487,18 @@ create_recovery_script() {
     print_header "Creating recovery script"
     print_step "Creating a recovery script in case of terminal issues..."
     
-    # Create a recovery script that can be run from Windows to fix terminal issues
-    RECOVERY_DIR="/mnt/c/wsl-recovery"
-    mkdir -p "$RECOVERY_DIR"
-    
-    cat > "$RECOVERY_DIR/fix-terminal.sh" << 'EOFRECOVERY'
+    # Create a recovery script in the user's home directory instead of Windows filesystem
+    cat > "$HOME/fix-terminal.sh" << 'EOFRECOVERY'
 #!/bin/bash
 # WSL Terminal Recovery Script
-# If you're seeing a blank terminal, run this from Windows PowerShell with:
-# wsl -d Debian -u root bash /mnt/c/wsl-recovery/fix-terminal.sh
+# If you're seeing a blank terminal, this will reset your configuration to a working state
 
 # Reset user's bashrc to working state
-USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
-if [ -f "$USER_HOME/.bashrc.bak" ]; then
-    cp "$USER_HOME/.bashrc.bak" "$USER_HOME/.bashrc"
+if [ -f "$HOME/.bashrc.bak" ]; then
+    cp "$HOME/.bashrc.bak" "$HOME/.bashrc"
 else
     # Create minimal working bashrc
-    cat > "$USER_HOME/.bashrc" << 'EOL'
+    cat > "$HOME/.bashrc" << 'EOL'
 # Basic .bashrc that should work reliably
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/bin:$HOME/.local/bin"
 
@@ -1409,37 +1522,60 @@ fi
 EOL
 fi
 
-# Fix ownership
-chown $SUDO_USER:$SUDO_USER "$USER_HOME/.bashrc"
-
 # Create a note about what happened
-echo "Terminal has been reset to a basic working state. Your previous configuration was backed up." > "$USER_HOME/TERMINAL_WAS_RESET.txt"
-echo "Run the ~/dev-env/update.sh script to restore the full development environment with safer settings." >> "$USER_HOME/TERMINAL_WAS_RESET.txt"
-chown $SUDO_USER:$SUDO_USER "$USER_HOME/TERMINAL_WAS_RESET.txt"
+echo "Terminal has been reset to a basic working state. Your previous configuration was backed up." > "$HOME/TERMINAL_WAS_RESET.txt"
+echo "Run the ~/dev-env/update.sh script to restore the full development environment with safer settings." >> "$HOME/TERMINAL_WAS_RESET.txt"
 
 echo "Terminal has been reset. Please restart your WSL session."
 EOFRECOVERY
     
-    chmod +x "$RECOVERY_DIR/fix-terminal.sh"
+    chmod +x "$HOME/fix-terminal.sh"
     check_error "Failed to create recovery script"
     
-    # Create a Windows batch file to run the recovery script easily
-    cat > "$RECOVERY_DIR/FixWSLTerminal.bat" << 'EOFBAT'
-@echo off
-echo WSL Terminal Recovery Tool
-echo.
-echo This will reset your WSL terminal if it's blank or not functioning properly.
-echo.
-pause
-wsl --shutdown
-wsl -d Debian -u root bash /mnt/c/wsl-recovery/fix-terminal.sh
-echo.
-echo Process completed. Please restart your WSL terminal.
-pause
-EOFBAT
+    # Get the current username for the instructions
+    CURRENT_USER=$(whoami)
     
-    print_success "Recovery script created at $RECOVERY_DIR"
-    print_warning "If you experience a blank terminal after restart, run C:\\wsl-recovery\\FixWSLTerminal.bat from Windows"
+    # Create instructions file for Windows users with the current username
+    cat > "$HOME/RECOVERY_INSTRUCTIONS.txt" << EOF
+IF YOU EXPERIENCE A BLANK TERMINAL OR PERMISSION ISSUES IN WSL:
+
+Follow these steps carefully:
+
+1. Open Windows PowerShell as Administrator
+2. Run these commands:
+   
+   wsl --shutdown
+   wsl -d Debian -u root
+   
+3. Once you're in WSL as root, run:
+   
+   bash /home/$CURRENT_USER/fix-terminal.sh
+   
+4. Exit WSL (type 'exit') and restart it
+
+FIXING PERMISSION ISSUES:
+
+If you continue to have permission problems, run:
+
+   sudo nano /etc/wsl.conf
+
+And make sure it contains:
+
+[automount]
+enabled = true
+options = "metadata,uid=1000,gid=1000,umask=022"
+mountFsTab = true
+
+[interop]
+enabled = true
+appendWindowsPath = true
+
+Save with Ctrl+O, then Exit with Ctrl+X.
+Then restart WSL with 'wsl --shutdown' from PowerShell.
+EOF
+
+    print_success "Recovery scripts created in your home directory"
+    print_warning "If you experience issues, see $HOME/RECOVERY_INSTRUCTIONS.txt"
 }
 
 # Create a PowerShell shortcut to launch WSL with a minimal working configuration
@@ -1796,6 +1932,9 @@ setup_workspace
 # Update system and install dependencies
 update_system
 install_core_deps
+
+# Configure WSL with proper mount options
+configure_wsl
 
 # Install and configure Neofetch 
 install_neofetch
