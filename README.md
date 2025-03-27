@@ -1,13 +1,4 @@
 # WSL Development Environment Setup
-
-```
-                _                         _           _       _           
-__      ___ __ | |  _ __   ___  _____   _(_)_ __ ___ | |__  | |___      __
-\ \ /\ / / '_ \| | | '_ \ / _ \/ _ \ \ / / | '_ ` _ \| '_ \ | __\ \ /\ / /
- \ V  V /| | | | | | | | |  __/ (_) \ V /| | | | | | | |_) || |_ \ V  V / 
-  \_/\_/ |_| |_|_| |_| |_|\___|\___/ \_/ |_|_| |_| |_|_.__/  \__| \_/\_/  
-                                                                          
-
 A simple script to set up a beginner-friendly development environment for WSL Debian.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
