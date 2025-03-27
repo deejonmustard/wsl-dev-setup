@@ -1,8 +1,6 @@
 # WSL Development Environment Setup
 A simple script to set up a beginner-friendly development environment for WSL Debian.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 ## Features
 
 - Neovim with Kickstart configuration
