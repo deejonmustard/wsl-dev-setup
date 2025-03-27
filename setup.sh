@@ -95,6 +95,44 @@ refresh_path() {
     hash -r
 }
 
+# Handle Windows permission issues safely
+handle_windows_permissions() {
+    local target_path="$1"
+    local operation="$2"  # "create", "modify", or "check"
+    
+    # Check if path is on a Windows drive
+    if [[ "$target_path" == /mnt/* ]]; then
+        if [[ "$operation" == "create" || "$operation" == "modify" ]]; then
+            # For create/modify operations, use an alternative approach
+            print_warning "Cannot directly modify files on Windows filesystem due to permission limitations."
+            print_warning "Using alternative approach for $target_path"
+            
+            # For files that need to be created in Windows filesystem, create them in Linux first
+            local temp_file=$(mktemp)
+            cat > "$temp_file"
+            
+            # Then use cmd.exe to copy them (which works around permission issues)
+            local win_path=$(wslpath -w "$target_path")
+            local temp_win_path=$(wslpath -w "$temp_file")
+            cmd.exe /c copy "$temp_win_path" "$win_path" > /dev/null 2>&1
+            
+            # Clean up
+            rm "$temp_file"
+            return 0
+        elif [[ "$operation" == "check" ]]; then
+            # Just check if file exists
+            if [ -e "$target_path" ]; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    else
+        # Not a Windows path, proceed normally
+        return 0
+    fi
+}
+
 # Check if we're already using Zsh
 USING_ZSH=0
 if [ -n "$ZSH_VERSION" ]; then
@@ -171,17 +209,28 @@ configure_wsl() {
         
         # Write to a temporary file first
         cat > /tmp/wsl.conf << 'EOL'
+# WSL Configuration with optimized settings for development
+# This config maintains compatibility while improving performance
+
 [automount]
 enabled = true
-options = "metadata,uid=1000,gid=1000,umask=022"
+options = "metadata,umask=022,fmask=111"
 mountFsTab = true
+crossDistro = true
 
 [network]
 generateResolvConf = true
+generateHosts = true
 
 [interop]
 enabled = true
 appendWindowsPath = true
+
+[boot]
+command = ""
+
+[user]
+default = ubuntu
 EOL
         
         # Use sudo to move the file to /etc
@@ -194,6 +243,65 @@ EOL
     else
         print_step "WSL already configured properly"
     fi
+
+    # Fix permissions for Windows VS Code access
+    print_step "Fixing permissions for VS Code access..."
+    # Check VS Code known locations and set proper permissions
+    VS_CODE_LOCATIONS=(
+        "/mnt/c/Program Files/Microsoft VS Code/bin/code"
+        "/mnt/c/Program Files/Microsoft VS Code/code.exe"
+        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/bin/code"
+        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/code.exe"
+        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code Insiders/bin/code-insiders"
+        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code Insiders/code-insiders.exe"
+    )
+    
+    for location in "${VS_CODE_LOCATIONS[@]}"; do
+        for path in $location; do
+            if [ -f "$path" ]; then
+                print_step "Found VS Code at: $path"
+                # Permissions won't work on Windows filesystem, so we'll use a wrapper function
+                break
+            fi
+        done
+    done
+    
+    # Create a code command wrapper in the user's home directory
+    print_step "Creating VS Code wrapper function..."
+    cat > "$HOME/bin/code-wrapper.sh" << 'EOL'
+#!/bin/bash
+# VS Code wrapper script for WSL
+# This bypasses permission issues by using cmd.exe to launch code
+
+# If run with no arguments, open current directory
+if [ $# -eq 0 ]; then
+    cmd.exe /c "code" "$(wslpath -w "$(pwd)")" > /dev/null 2>&1
+    exit $?
+fi
+
+# Convert Linux paths to Windows paths when needed
+args=()
+for arg in "$@"; do
+    # Check if the argument is a file or directory that exists
+    if [ -e "$arg" ]; then
+        # Convert to Windows path
+        win_path=$(wslpath -w "$arg")
+        args+=("$win_path")
+    else
+        # Pass through as-is for flags or non-existent paths
+        args+=("$arg")
+    fi
+done
+
+# Launch VS Code via cmd.exe to avoid permission issues
+cmd.exe /c "code" "${args[@]}" > /dev/null 2>&1
+exit $?
+EOL
+    
+    chmod +x "$HOME/bin/code-wrapper.sh"
+    
+    print_success "VS Code wrapper created at $HOME/bin/code-wrapper.sh"
+    print_success "WSL configuration completed"
 }
 
 # Install Neofetch for system information display
@@ -413,6 +521,163 @@ table.insert(require('lazy').plugins, {
     vim.api.nvim_set_hl(0, "NormalNC", { bg = "#000000" })
   end,
   priority = 1000, -- Load theme early
+})
+
+-- Force pure black background again after other plugins load
+vim.api.nvim_create_autocmd("VimEnter", {
+  callback = function()
+    vim.api.nvim_set_hl(0, "Normal", { bg = "#000000" })
+    vim.api.nvim_set_hl(0, "NormalFloat", { bg = "#000000" })
+    vim.api.nvim_set_hl(0, "NormalNC", { bg = "#000000" })
+  end,
+})
+
+-- ================= STARTUP SCREEN CONFIGURATION =================
+-- Add startup.nvim for a beautiful start screen
+table.insert(require('lazy').plugins, {
+  'startup-nvim/startup.nvim',
+  dependencies = { 'nvim-telescope/telescope.nvim', 'nvim-lua/plenary.nvim' },
+  config = function()
+    require('startup').setup({
+      -- Theme inspired by dashboard but with pure black background
+      theme = 'dashboard',
+      
+      -- Override colors to ensure pure black background
+      colors = {
+        background = "#000000",
+        folded_section = "#56b6c2",
+      },
+      
+      -- Custom mappings/sections with useful commands
+      sections = {
+        header = {
+          type = "text",
+          oldfiles_directory = false,
+          align = "center",
+          fold_section = false,
+          title = "Header",
+          margin = 5,
+          content = {
+              "                                                                ",
+              "  ███╗   ██╗███████╗ ██████╗ ██╗   ██╗██╗███╗   ███╗    ██████╗ ████████╗██╗    ██╗ ",
+              "  ████╗  ██║██╔════╝██╔═══██╗██║   ██║██║████╗ ████║    ██╔══██╗╚══██╔══╝██║    ██║ ",
+              "  ██╔██╗ ██║█████╗  ██║   ██║██║   ██║██║██╔████╔██║    ██████╔╝   ██║   ██║ █╗ ██║ ",
+              "  ██║╚██╗██║██╔══╝  ██║   ██║╚██╗ ██╔╝██║██║╚██╔╝██║    ██╔══██╗   ██║   ██║███╗██║ ",
+              "  ██║ ╚████║███████╗╚██████╔╝ ╚████╔╝ ██║██║ ╚═╝ ██║    ██████╔╝   ██║   ╚███╔███╔╝ ",
+              "  ╚═╝  ╚═══╝╚══════╝ ╚═════╝   ╚═══╝  ╚═╝╚═╝     ╚═╝    ╚═════╝    ╚═╝    ╚══╝╚══╝  ",
+              "                                                                ",
+          },
+          highlight = "Statement",
+          default_color = "",
+          oldfiles_amount = 0,
+        },
+        -- Main mapping section with frequently used commands
+        main_buttons = {
+          type = "mapping",
+          oldfiles_directory = false,
+          align = "center",
+          fold_section = false,
+          title = "Basic Commands",
+          margin = 5,
+          content = {
+            { " Find File", "Telescope find_files", "<leader>ff" },
+            { " Find Word", "Telescope live_grep", "<leader>fg" },
+            { " Recent Files", "Telescope oldfiles", "<leader>fo" },
+            { " File Browser", "Telescope file_browser", "<leader>fb" },
+            { " Colorschemes", "Telescope colorscheme", "<leader>cs" },
+            { " New File", "lua require'startup'.new_file()", "<leader>nf" },
+          },
+          highlight = "String",
+          default_color = "",
+          oldfiles_amount = 0,
+        },
+        -- Advanced mapping section with development tools
+        dev_tools = {
+          type = "mapping",
+          oldfiles_directory = false,
+          align = "center",
+          fold_section = false,
+          title = "Development",
+          margin = 5,
+          content = {
+            { " Git Status", "Git", "<leader>gs" },
+            { " Toggle Terminal", "ToggleTerm", "<leader>t" },
+            { " Mason Installer", "Mason", "<leader>mi" },
+            { " LSP Info", "LspInfo", "<leader>li" },
+            { " Lazy Plugin Manager", "Lazy", "<leader>pl" },
+          },
+          highlight = "Function",
+          default_color = "",
+          oldfiles_amount = 0,
+        },
+        -- Bottom section with quick tips
+        bottom_buttons = {
+          type = "text",
+          oldfiles_directory = false,
+          align = "center",
+          fold_section = false,
+          title = "Quick Tips",
+          margin = 5,
+          content = function()
+            local tips = {
+              "💡 Press <leader>? to see all key bindings",
+              "💡 Use <C-hjkl> to navigate windows",
+              "💡 Close this screen with q",
+              "💡 Press <leader>ff to find files",
+              "💡 Press <leader>fg to search for text",
+            }
+            return {tips[math.random(#tips)]}
+          end,
+          highlight = "Comment",
+          default_color = "",
+          oldfiles_amount = 0,
+        },
+        -- Bottom information section
+        footer = {
+          type = "text",
+          oldfiles_directory = false,
+          align = "center",
+          fold_section = false,
+          title = "Footer",
+          margin = 5,
+          content = function()
+            local datetime = os.date(" %d-%m-%Y   %H:%M:%S")
+            local version = vim.version()
+            local nvim_version_info = "   v" .. version.major .. "." .. version.minor .. "." .. version.patch
+            return {datetime .. "   " .. nvim_version_info}
+          end,
+          highlight = "Special",
+          default_color = "",
+          oldfiles_amount = 0,
+        },
+      },
+      
+      options = {
+        mapping_keys = true,
+        cursor_column = 0.5,
+        empty_lines_between_mappings = true,
+        disable_statuslines = true,
+        paddings = {1, 3, 3, 1},
+      },
+      
+      mappings = {
+        execute_command = "<CR>",
+        open_file = "o",
+        open_file_split = "<c-o>",
+        open_section = "<TAB>",
+        open_help = "?",
+      },
+    })
+    
+    -- Force pure black background after startup screen loads
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "StartupDone",
+      callback = function()
+        vim.api.nvim_set_hl(0, "Normal", { bg = "#000000" })
+        vim.api.nvim_set_hl(0, "NormalFloat", { bg = "#000000" })
+      end,
+    })
+  end
 })
 
 -- ================= OTHER PLUGINS =================
@@ -1586,10 +1851,9 @@ create_windows_shortcut() {
     # Get Windows username
     WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
     
-    # Create PowerShell script in Windows Desktop
-    DESKTOP_DIR="/mnt/c/Users/$WIN_USER/Desktop"
-    if [ -d "$DESKTOP_DIR" ]; then
-        cat > "$DESKTOP_DIR/Launch-WSL-Safe.ps1" << 'EOL'
+    # Create the script in the Linux home directory for safety
+    SCRIPT_PATH="$HOME/wsl-safe-launch.ps1"
+    cat > "$SCRIPT_PATH" << 'EOL'
 # PowerShell script to launch WSL with a minimal working configuration
 Write-Host "Launching WSL in safe mode..." -ForegroundColor Green
 
@@ -1627,19 +1891,41 @@ fi
 # Keep PowerShell window open
 Read-Host "Press Enter to exit"
 EOL
-        
-        # Create a shortcut to run the PowerShell script
-        cat > "$DESKTOP_DIR/WSL-Safe-Mode.bat" << EOL
+    
+    # Create bat file in home directory
+    BATCH_PATH="$HOME/wsl-safe-launch.bat"
+    cat > "$BATCH_PATH" << EOL
 @echo off
 echo Launching WSL in Safe Mode...
-powershell.exe -ExecutionPolicy Bypass -File "%USERPROFILE%\Desktop\Launch-WSL-Safe.ps1"
+powershell.exe -ExecutionPolicy Bypass -File "%USERPROFILE%\\wsl-safe-launch.ps1"
 EOL
-        
-        print_success "Windows shortcuts created on desktop: WSL-Safe-Mode.bat"
-        print_warning "If you experience a blank terminal, run WSL-Safe-Mode.bat from your Windows desktop"
-    else
-        print_warning "Couldn't create Windows shortcut. Windows desktop not found."
-    fi
+    
+    # Create instructions for the user to move this to Windows desktop
+    INSTRUCTIONS_PATH="$HOME/WINDOWS_SHORTCUT_INSTRUCTIONS.txt"
+    cat > "$INSTRUCTIONS_PATH" << EOL
+TO CREATE A SAFE LAUNCH SHORTCUT ON YOUR WINDOWS DESKTOP:
+
+1. Open Windows File Explorer and navigate to:
+   \\wsl$\\Debian\\home\\$USER
+
+2. Copy these two files to your Windows Desktop:
+   - wsl-safe-launch.ps1
+   - wsl-safe-launch.bat
+
+3. Create a shortcut on your desktop to the .bat file:
+   - Right-click on wsl-safe-launch.bat
+   - Select "Create shortcut"
+   - Rename it to "WSL Safe Mode"
+
+If you experience terminal issues, run this shortcut to start WSL in a safe mode
+with minimal configuration.
+EOL
+    
+    chmod +x "$SCRIPT_PATH"
+    chmod +x "$BATCH_PATH"
+    
+    print_success "Safe launch scripts created in your home directory"
+    print_warning "Follow instructions in $INSTRUCTIONS_PATH to create Windows shortcuts"
 }
 
 # Create update script
@@ -1878,44 +2164,151 @@ EOFCODEPAGE
     if ! grep -q "WSL-DEV-SETUP PATH FILTER" ~/.bashrc; then
         cat >> ~/.bashrc << 'EOFPATHFILTER'
 
-# WSL-DEV-SETUP PATH FILTER - SAFE VERSION
-# This block uses a safer approach to filter Windows paths that can cause conflicts
-wsl_path_filter() {
-    # Store the original PATH
-    local original_path="$PATH"
-    local filtered_path="$PATH"
-    
-    # Try to filter problematic Windows paths
-    filtered_path=$(echo "$filtered_path" | sed 's|:/mnt/c/Program Files/nodejs[^:]*||g' 2>/dev/null) || return 1
-    filtered_path=$(echo "$filtered_path" | sed 's|:/mnt/c/Users/.*/AppData/Roaming/npm||g' 2>/dev/null) || return 1
-    filtered_path=$(echo "$filtered_path" | sed 's|:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*||g' 2>/dev/null) || return 1
-    
-    # Only use the filtered path if it's not empty and contains basic system directories
-    if [[ "$filtered_path" == *"/usr/bin"* ]]; then
-        export PATH="$filtered_path"
-    else
-        # If something went wrong, use a safe default path
-        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:$HOME/bin:$HOME/.local/bin:/mnt/c/Windows/system32:/mnt/c/Windows"
-    fi
-    
-    # Add NVM bin to the beginning of PATH if it exists
-    if [ -d "$HOME/.nvm" ]; then
-        local NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
-        if [ -n "$NVM_BIN" ]; then
-            export PATH="$NVM_BIN:$PATH"
-        fi
-    fi
-}
-
-# Apply the path filter safely
-wsl_path_filter
+# WSL-DEV-SETUP PATH FILTER - SAFER VERSION
+# === Path and Environment Configuration for WSL ===
 
 # Set npm to use Linux mode
 if command -v npm >/dev/null 2>&1; then
     npm config set os linux >/dev/null 2>&1
 fi
+
+# Ensure Windows Terminal uses UTF-8
+if [[ -n "$WT_SESSION" ]]; then
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+fi
+
+# Function to ensure essential directories are prioritized in PATH 
+# without breaking anything if something goes wrong
+ensure_safe_path() {
+    # Essential directories that should be at the front of PATH
+    local linux_essential_dirs=(
+        "$HOME/.local/bin"
+        "$HOME/bin"
+        "/usr/local/sbin"
+        "/usr/local/bin" 
+        "/usr/sbin"
+        "/usr/bin"
+        "/sbin"
+        "/bin"
+    )
+    
+    # Essential Windows directories we want to keep
+    local win_essential_dirs=(
+        "/mnt/c/Windows/system32"
+        "/mnt/c/Windows"
+        "/mnt/c/Windows/System32/WindowsPowerShell/v1.0"
+    )
+    
+    # Paths we want to filter out (Node.js conflicts)
+    local filtered_patterns=(
+        "/mnt/c/Program Files/nodejs"
+        "/mnt/c/Users/*/AppData/Roaming/npm"
+        "/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript"
+    )
+    
+    # Build new PATH with Linux essentials first
+    local new_path=""
+    for dir in "${linux_essential_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            new_path="$new_path:$dir"
+        fi
+    done
+    
+    # Get existing PATH and process it
+    local orig_ifs="$IFS"
+    IFS=":"
+    local existing_paths=($PATH)
+    IFS="$orig_ifs"
+    
+    # Add remaining paths that aren't in the filtered list
+    for p in "${existing_paths[@]}"; do
+        # Skip empty paths
+        if [[ -z "$p" ]]; then continue; fi
+        
+        # Skip if already in our new path
+        if [[ "$new_path" == *":$p:"* || "$new_path" == *":$p" ]]; then
+            continue
+        fi
+        
+        # Skip filtered paths
+        local skip=false
+        for pattern in "${filtered_patterns[@]}"; do
+            if [[ "$p" == *"$pattern"* ]]; then
+                skip=true
+                break
+            fi
+        done
+        
+        if [[ "$skip" == "false" ]]; then
+            new_path="$new_path:$p"
+        fi
+    done
+    
+    # Add essential Windows paths
+    for dir in "${win_essential_dirs[@]}"; do
+        if [[ -d "$dir" && "$new_path" != *"$dir"* ]]; then
+            new_path="$new_path:$dir"
+        fi
+    done
+    
+    # Remove leading colon
+    new_path="${new_path#:}"
+    
+    # Set new PATH only if it looks valid (contains /usr/bin)
+    if [[ "$new_path" == *"/usr/bin"* ]]; then
+        export PATH="$new_path"
+    else
+        # Fallback to a safe minimal PATH if something went wrong
+        export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin:/usr/games:/mnt/c/Windows/system32:/mnt/c/Windows"
+        echo "WARNING: Path filtering failed, using safe default PATH"
+    fi
+}
+
+# Apply path filtering safely
+ensure_safe_path
+
+# Add NVM to PATH if available
+if [ -d "$HOME/.nvm" ]; then
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+fi
+
+# Create shortcut to VS Code wrapper if it exists
+if [ -f "$HOME/bin/code-wrapper.sh" ]; then
+    alias code="$HOME/bin/code-wrapper.sh"
+fi
+
+# This section makes sure we have a working prompt if it gets corrupted
+fix_my_prompt() {
+    # Set a simple but functional bash prompt
+    PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+    export PS1
+}
+
+# If the prompt appears to be broken, this can be run to fix it
+alias fix-prompt=fix_my_prompt
 EOFPATHFILTER
         check_error "Failed to add safe PATH filter to .bashrc"
+    fi
+    
+    # Install the same path filter for zsh
+    if [ -f ~/.zshrc ]; then
+        print_step "Adding path filter to .zshrc..."
+        if ! grep -q "WSL-DEV-SETUP PATH FILTER" ~/.zshrc; then
+            cat >> ~/.zshrc << 'EOFZSH'
+
+# Source bashrc PATH filter if it exists
+if [ -f ~/.bashrc ]; then
+    # Extract the PATH filter section from .bashrc and source it
+    grep -A 100 "WSL-DEV-SETUP PATH FILTER" ~/.bashrc > /tmp/path_filter.sh
+    source /tmp/path_filter.sh
+    rm /tmp/path_filter.sh
+fi
+EOFZSH
+            check_error "Failed to add path filter to .zshrc"
+        fi
     fi
     
     print_success "Safe PATH filtering configured"
