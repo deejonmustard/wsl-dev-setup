@@ -35,15 +35,6 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 - **Claude Code**: AI assistant for coding
 - **WSL Utilities**: Helper scripts for Windows integration
 
-## Repository Structure
-
-```
-wsl-dev-setup/
-├── .gitignore           # Git ignore rules
-├── LICENSE              # MIT License
-├── README.md            # This file
-└── setup.sh             # Main setup script
-```
 
 ## Updates
 
