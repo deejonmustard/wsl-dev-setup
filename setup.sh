@@ -559,7 +559,7 @@ check_error "Failed to create update script"
 chmod +x "$SETUP_DIR/update.sh"
 check_error "Failed to make update script executable"
 
-# Create core-tools role
+# Create core-tools role with ripgrep listed first
 ensure_dir "$SETUP_DIR/ansible/roles/core-tools/tasks"
 cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
 ---
@@ -574,7 +574,7 @@ cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
   apt:
     name:
       # Core utilities
-      - ripgrep          # Better grep (rg)
+      - ripgrep          # Better grep (rg) - CRITICAL for Telescope plugin
       - fd-find          # Better find (fd)
       - fzf              # Fuzzy finder
       - tmux             # Terminal multiplexer
@@ -826,7 +826,7 @@ cat > "$SETUP_DIR/ansible/roles/nodejs/tasks/main.yml" << 'EOL'
 EOL
 check_error "Failed to create nodejs role"
 
-# Create Zsh configuration file with neofetch at startup and quick links
+# Create Zsh configuration file with welcome message after neofetch
 cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
 # Path to Oh My Zsh installation
 export ZSH="$HOME/.oh-my-zsh"
@@ -869,31 +869,17 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
-# Run neofetch at startup
-neofetch
+# Run neofetch at startup - explicitly use the full path to ensure Linux version is used
+if [ -f "/usr/bin/neofetch" ]; then
+  /usr/bin/neofetch
+else
+  echo "Neofetch not found at /usr/bin/neofetch"
+fi
 
-# Print quick links to configuration files and documentation
-print_dev_links() {
-  echo ""
-  echo "💻 Development Environment Quick Links:"
-  echo "----------------------------------------"
-  echo "📚 Guides:"
-  echo "  nvim ~/dev-env/docs/getting-started.md   # Getting started"
-  echo "  nvim ~/dev-env/docs/neovim-guide.md      # Neovim guide"
-  echo "  nvim ~/dev-env/docs/dev-cheatsheet.md    # Development cheatsheet"
-  echo ""
-  echo "⚙️  Configs:"
-  echo "  nvim ~/.config/nvim/lua/custom/init.lua  # Neovim custom config"
-  echo "  nvim ~/dev-env/configs/zsh/zshrc         # Zsh config"
-  echo "  nvim ~/dev-env/configs/tmux/tmux.conf    # Tmux config"
-  echo ""
-  echo "🔄 Update environment: ~/dev-env/update.sh"
-  echo "🔍 Edit configs menu:  ec"
-  echo "----------------------------------------"
-}
-
-# Show quick links
-print_dev_links
+# Show welcome message with helpful links
+if [ -f "$HOME/dev-env/bin/welcome-message.sh" ]; then
+  source "$HOME/dev-env/bin/welcome-message.sh"
+fi
 
 # Aliases - focused on productivity
 alias vim='nvim'
@@ -1026,7 +1012,29 @@ newproject() {
   echo "  nvim ."
 }
 EOL
-check_error "Failed to create zsh configuration"
+
+# Update .bashrc to use explicit neofetch path and show welcome message
+if ! grep -q "/usr/bin/neofetch" ~/.bashrc && grep -q "neofetch" ~/.bashrc; then
+  sed -i 's/neofetch/\/usr\/bin\/neofetch/g' ~/.bashrc
+  echo -e "${GREEN}Updated ~/.bashrc to use explicit neofetch path${NC}"
+elif ! grep -q "/usr/bin/neofetch" ~/.bashrc && ! grep -q "neofetch" ~/.bashrc; then
+  echo -e "\n# Run neofetch at startup (explicitly using Linux version)" >> ~/.bashrc
+  echo 'if [ -f "/usr/bin/neofetch" ]; then' >> ~/.bashrc
+  echo '  /usr/bin/neofetch' >> ~/.bashrc
+  echo 'else' >> ~/.bashrc
+  echo '  echo "Neofetch not found at /usr/bin/neofetch"' >> ~/.bashrc
+  echo 'fi' >> ~/.bashrc
+  echo -e "${GREEN}Added explicit neofetch path to ~/.bashrc startup${NC}"
+fi
+
+# Add welcome message to bashrc
+if ! grep -q "welcome-message.sh" ~/.bashrc; then
+  echo -e "\n# Show welcome message with helpful links" >> ~/.bashrc
+  echo 'if [ -f "$HOME/dev-env/bin/welcome-message.sh" ]; then' >> ~/.bashrc
+  echo '  source "$HOME/dev-env/bin/welcome-message.sh"' >> ~/.bashrc
+  echo 'fi' >> ~/.bashrc
+  echo -e "${GREEN}Added welcome message to ~/.bashrc${NC}"
+fi
 
 # Create tmux configuration
 cat > "$SETUP_DIR/configs/tmux/tmux.conf" << 'EOL'
@@ -2495,11 +2503,25 @@ fi
 cp "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" ~/bin/
 cp "$SETUP_DIR/configs/wsl/winopen" ~/bin/
 cp "$SETUP_DIR/configs/wsl/clip-copy" ~/bin/
-chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
+cp "$SETUP_DIR/bin/welcome-message.sh" ~/bin/
+chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy ~/bin/welcome-message.sh
 check_error "Failed to copy and make WSL utilities executable"
 
 # Let's source .bashrc to add PATH immediately in this session
 source ~/.bashrc
+
+# Install ripgrep directly since it's critical for Telescope plugin
+print_header "Installing Ripgrep for Telescope"
+print_step "Checking if ripgrep is installed..."
+if ! command_exists rg; then
+  print_step "Installing ripgrep..."
+  sudo apt update
+  sudo apt install -y ripgrep
+  check_error "Failed to install ripgrep"
+  echo -e "${GREEN}Ripgrep installed successfully!${NC}"
+else
+  print_step "Ripgrep is already installed"
+fi
 
 # Create a script to install Neovim providers and Treesitter language parsers
 cat > "$SETUP_DIR/bin/fix-neovim.sh" << 'ENDOFFILE'
@@ -2751,10 +2773,32 @@ echo -e "${BLUE}=== Syncing Lazy plugin manager ===${NC}"
 # Set up the RosePine theme
 mkdir -p ~/.config/nvim/after/plugin
 cat > ~/.config/nvim/after/plugin/theme.lua << 'EOFINNER'
--- Ensure the Rose Pine theme is set
+-- Ensure the Rose Pine theme is set with pure black background
 vim.cmd([[
   try
-    colorscheme rose-pine
+    lua << EOF
+    require('rose-pine').setup({
+      variant = 'moon',
+      dark_variant = 'moon',
+      bold_vert_split = false,
+      dim_nc_background = false,
+      disable_background = true,
+      disable_float_background = false,
+      disable_italics = false,
+      highlight_groups = {
+        Normal = { bg = "#000000" },
+        NormalFloat = { bg = "#000000" },
+        StatusLine = { bg = "#000000" },
+        StatusLineNC = { bg = "#000000" },
+        SignColumn = { bg = "#000000" },
+      }
+    })
+    vim.cmd('colorscheme rose-pine')
+    -- Set pure black background after colorscheme
+    vim.api.nvim_set_hl(0, "Normal", { bg = "#000000" })
+    vim.api.nvim_set_hl(0, "NormalFloat", { bg = "#000000" })
+    vim.api.nvim_set_hl(0, "NormalNC", { bg = "#000000" })
+    EOF
   catch
     colorscheme default
   endtry
@@ -2773,7 +2817,7 @@ export NVM_DIR="$HOME/.nvm"  # Make sure NVM is available
 echo -e "${BLUE}Running Neovim to install plugins (this may take a minute)...${NC}"
 nvim --headless "+Lazy! sync" +qa
 
-# Create a beginner's startup page for Neovim
+# Create a beginner's startup page for Neovim with updated ASCII art
 mkdir -p ~/.config/nvim/plugin
 cat > ~/.config/nvim/plugin/startup-screen.lua << 'EOFINNER'
 -- Create a custom startup screen for beginners
@@ -2793,16 +2837,16 @@ vim.api.nvim_create_autocmd("VimEnter", {
       -- Set the content
       local lines = {}
       table.insert(lines, "")
-      table.insert(lines, "   █████   █████    █████████  █████                                                  ")
-      table.insert(lines, "  ░░███   ░░███   ███░░░░░███░░███                                                   ")
-      table.insert(lines, "   ░███    ░███  ░███    ░░░  ░███████   █████ ████ ████████                        ")
-      table.insert(lines, "   ░███    ░███  ░░█████████  ░███░░███ ░░███ ░███ ░░███░░███                       ")
-      table.insert(lines, "   ░░███   ███    ░░░░░░░░███ ░███ ░███  ░███ ░███  ░███ ░███                       ")
-      table.insert(lines, "    ░░░█████░     ███    ░███ ░███ ░███  ░███ ░███  ░███ ░███                       ")
-      table.insert(lines, "      ░░███      ░░█████████  ████ █████ ░░████████ ████ █████                      ")
-      table.insert(lines, "       ░░░        ░░░░░░░░░  ░░░░ ░░░░░   ░░░░░░░░ ░░░░ ░░░░                       ")
-      table.insert(lines, "                                                                                     ")
-      table.insert(lines, "        WSL Development Environment - Your journey begins here!                      ")
+      table.insert(lines, "                                                                               ")
+      table.insert(lines, "                                                                               ")
+      table.insert(lines, "    ████ ██████  ██████  ████ ████   ████      ████████   ████████ ██      ██ ")
+      table.insert(lines, "   ██  ██ ██  ██ ██  ██ ██  ██ ██ ██ ██ ██     ██     ██     ██     ██  ██   ")
+      table.insert(lines, "  ██    ██    ██     ██ ██    ██    ██   ██    ████████     ██       ████    ")
+      table.insert(lines, "  ██    ██    ██     ██ ██    ██    ███████    ██     ██    ██        ██     ")
+      table.insert(lines, "  ██    ██    ██     ██ ██    ██    ██   ██    ██     ██    ██        ██     ")
+      table.insert(lines, "  ██    ██    ██     ██ ██    ██    ██   ██    ████████     ██        ██     ")
+      table.insert(lines, "                                                                               ")
+      table.insert(lines, "                 WSL Development Environment - Your journey begins here!       ")
       table.insert(lines, "")
       table.insert(lines, "")
       table.insert(lines, "        Press F1 for a quick reference guide")
@@ -2834,8 +2878,18 @@ vim.api.nvim_create_autocmd("VimEnter", {
       vim.keymap.set('n', 'e', '<cmd>NvimTreeToggle<CR>', opts)
       vim.keymap.set('n', 'f', '<cmd>Telescope find_files<CR>', opts)
       vim.keymap.set('n', 'q', '<cmd>q<CR>', opts)
+      
+      -- Fix the documentation browser command
       vim.keymap.set('n', 'd', function()
-        vim.cmd('terminal bash -c "cd ~/dev-env/docs && ls -1 *.md && read -p \"Enter guide name: \" guide && if [ -f \"$guide\" ] || [ -f \"$guide.md\" ]; then nvim \"${guide%.md}.md\"; else echo \"Guide not found\"; fi"')
+        -- Changed the command to avoid the empty filename error
+        local dev_env_docs = vim.fn.expand("~/dev-env/docs")
+        if vim.fn.isdirectory(dev_env_docs) == 1 then
+          vim.cmd(string.format('terminal bash -c "cd %s && ls -1 *.md && echo \"\" && read -p \"Enter guide name: \" guide && if [ -f \"$guide\" ] || [ -f \"$guide.md\" ]; then nvim \\\"%s/${guide%.md}.md\\\"; else echo \\\"Guide not found\\\"; fi"', 
+            vim.fn.escape(dev_env_docs, " "),
+            vim.fn.escape(dev_env_docs, " ")))
+        else
+          vim.notify("Documentation directory not found!", vim.log.levels.ERROR)
+        end
       end, opts)
     end
   end,
@@ -3019,3 +3073,82 @@ As you learn, consider:
 
 Remember: Learning takes time. Start with small projects and gradually build up your skills!
 EOL
+
+# Add a welcome script that will show useful links at login
+cat > "$SETUP_DIR/bin/welcome-message.sh" << 'ENDOFFILE'
+#!/bin/bash
+# Welcome message with useful links
+
+# Color definitions
+NC='\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+
+# Only print if we're in an interactive terminal
+if [ -t 1 ]; then
+  echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${PURPLE}║                                                                ║${NC}"
+  echo -e "${PURPLE}║           ${GREEN}Welcome to your WSL Development Environment!${PURPLE}          ║${NC}"
+  echo -e "${PURPLE}║                                                                ║${NC}"
+  echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${CYAN}📚 Helpful Resources:${NC}"
+  echo -e "  • ${YELLOW}Beginner Guide:${NC} nvim ~/dev-env/docs/beginners-guide.md"
+  echo -e "  • ${YELLOW}Neovim Guide:${NC} nvim ~/dev-env/docs/neovim-guide.md"
+  echo -e "  • ${YELLOW}Cheatsheet:${NC} nvim ~/dev-env/docs/dev-cheatsheet.md"
+  echo -e "  • ${YELLOW}Edit configs:${NC} ec"
+  echo -e "  • ${YELLOW}Create project:${NC} newproject <name> [template]"
+  echo ""
+  echo -e "${CYAN}💡 Tip:${NC} Type ${YELLOW}nvim${NC} to open the interactive start screen"
+  echo ""
+fi
+ENDOFFILE
+chmod +x "$SETUP_DIR/bin/welcome-message.sh"
+
+# Create a checkhealth script in bin directory
+cat > "$SETUP_DIR/bin/checkhealth" << 'ENDOFFILE'
+#!/bin/bash
+# Helper script to run Neovim checkhealth for beginners
+
+echo "Running Neovim checkhealth..."
+nvim --headless -c "checkhealth" -c "write! /tmp/nvim-checkhealth.txt" -c "quit"
+echo "====================================="
+echo "Health Check Report:"
+echo "====================================="
+cat /tmp/nvim-checkhealth.txt
+echo "====================================="
+echo "Report saved to /tmp/nvim-checkhealth.txt"
+echo "For more detailed information, run 'nvim' and type ':checkhealth'"
+ENDOFFILE
+chmod +x "$SETUP_DIR/bin/checkhealth"
+cp "$SETUP_DIR/bin/checkhealth" ~/bin/
+chmod +x ~/bin/checkhealth
+
+# Final output message with new beginner-friendly highlights and updated features
+print_title "Initial Setup Complete!"
+echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
+echo -e "\n${BLUE}To make the custom commands immediately available:${NC}"
+echo -e "  ${YELLOW}source ~/.bashrc${NC}"
+echo -e "\n${BLUE}Beginner-Friendly Features:${NC}"
+echo -e "1. ${CYAN}Interactive startup screen${NC} - Just type ${YELLOW}nvim${NC} to see it"
+echo -e "2. ${CYAN}Press F1 in Neovim${NC} for a quick reference guide"
+echo -e "3. ${CYAN}Create new projects easily${NC} with ${YELLOW}newproject name template${NC}"
+echo -e "4. ${CYAN}Read the beginner's guide:${NC} ${YELLOW}nvim ~/dev-env/docs/beginners-guide.md${NC}"
+echo -e "\n${BLUE}Updates to your setup:${NC}"
+echo -e "1. ${CYAN}Pure black background${NC} for the Rose Pine theme"
+echo -e "2. ${CYAN}New 'nvim btw' ASCII art${NC} on the startup screen"
+echo -e "3. ${CYAN}Fixed terminal commands${NC} for browsing documentation"
+echo -e "4. ${CYAN}Added ripgrep${NC} which is required for Telescope search"
+echo -e "5. ${CYAN}Fixed neofetch path issues${NC} to use the Linux version"
+echo -e "6. ${CYAN}Added welcome message${NC} with helpful resources"
+echo -e "7. ${CYAN}Simple checkhealth command${NC} - Run ${YELLOW}checkhealth${NC} to verify setup"
+echo -e "\n${BLUE}Next steps:${NC}"
+echo -e "1. Run the update script to install additional tools: ${YELLOW}~/dev-env/update.sh${NC}"
+echo -e "2. Read the getting started guide: ${YELLOW}nvim ~/dev-env/docs/getting-started.md${NC}"
+echo -e "3. Consider changing your default shell to Zsh: ${YELLOW}chsh -s \$(which zsh)${NC}"
+echo -e "4. Explore the Neovim guides: ${YELLOW}nvim ~/dev-env/docs/neovim-guide.md${NC}"
+echo -e "\n${PURPLE}Neovim has been configured with a pure black Rose Pine theme!${NC}"
+echo -e "\n${GREEN}Happy learning and coding!${NC}"
