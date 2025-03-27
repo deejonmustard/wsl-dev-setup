@@ -1,34 +1,71 @@
 # WSL Development Environment Setup
 
-A script to set up an optimized development environment in WSL Debian.
+A simple script to set up a beginner-friendly development environment for WSL Debian.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-1. **Shell**: Zsh with essential plugins (not overwhelming)
-2. **Terminal Multiplexer**: Tmux with intuitive keybindings
-3. **Editor**: NeoVim with Kickstart configuration
-4. **Navigation**: Zoxide, fzf, and ripgrep for fast movement
-5. **WSL Utilities**: Path fixing and Windows integration tools
-6. **Git**: Essential aliases and shortcuts
+- Neovim with Kickstart configuration
+- Zsh with Oh My Zsh and plugins
+- Tmux for terminal multiplexing
+- Node.js via NVM
+- Claude Code AI assistant
+- Core development tools and utilities
 
-## Usage
+## Quick Install
 
-See the [usage guide](docs/usage-guide.md) for detailed instructions.
+For a fresh Debian WSL installation, run:
 
-### How to Customize Your Environment
+```bash
+# Update system and install curl first
+sudo apt update
+sudo apt upgrade -y
+sudo apt install curl -y
 
-The `editconfig` command (aliased as `ec`) makes it easy to modify your environment:
+# Download and run the setup script
+curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
+```
 
-1. Type `ec` in your terminal
-2. Select the configuration you want to edit
-3. Make your changes and save
-4. Run `~/dev-env/update.sh` to apply changes
+## What's Included
 
-### Adding New Tools
+- **Core Tools**: git, ripgrep, fd-find, fzf, tmux, zsh, and more
+- **Neovim**: Modern text editor with Kickstart configuration
+- **Zsh**: Enhanced shell with Oh My Zsh and plugins
+- **NVM**: Node Version Manager for JavaScript development
+- **Claude Code**: AI assistant for coding
+- **WSL Utilities**: Helper scripts for Windows integration
 
-To add a new development tool:
+## Documentation
 
-1. Edit the appropriate Ansible role:
-   ```bash
-   nvim ~/dev-env/ansible/roles/core-tools/tasks/main.yml
-   ```
+- [Usage Guide](docs/usage-guide.md) - Detailed instructions for setup and usage
+- [CHANGELOG](CHANGELOG.md) - Version history and changes
+- [CONTRIBUTING](CONTRIBUTING.md) - Guidelines for contributing to this project
+
+## Repository Structure
+
+```
+wsl-dev-setup/
+├── docs/                # Documentation files
+│   └── usage-guide.md   # Detailed usage instructions
+├── .github/             # GitHub-specific files
+│   └── workflows/       # GitHub Actions workflow definitions
+├── .gitignore           # Git ignore rules
+├── CHANGELOG.md         # Version history
+├── CONTRIBUTING.md      # Contributing guidelines
+├── LICENSE              # MIT License
+├── README.md            # This file
+└── setup.sh             # Main setup script
+```
+
+## Updates
+
+After installation, you can update your environment by running:
+
+```bash
+~/dev-env/update.sh
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

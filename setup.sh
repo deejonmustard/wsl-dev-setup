@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ===================================
-# Ultimate WSL Development Environment Setup v0.3.1
-# A beginner-friendly, modular development environment for WSL Debian
+# WSL Development Environment Setup
+# A beginner-friendly setup for WSL Debian
 # ===================================
 
 # --- Color definitions for output formatting ---
@@ -15,28 +15,11 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.3.1"
+SCRIPT_VERSION="0.3.2"
 NVIM_VERSION="0.10.0"
 SETUP_DIR="$HOME/dev-env"
 
 # --- Utility functions ---
-
-# Print a fancy title banner
-print_title() {
-    local title="$1"
-    local border_length=${#title}
-    local border=""
-    
-    for ((i=0; i<border_length+4; i++)); do
-        border+="="
-    done
-    
-    echo -e "${PURPLE}"
-    echo "$border"
-    echo "| $title |"
-    echo "$border"
-    echo -e "${NC}"
-}
 
 # Print a section header
 print_header() {
@@ -63,83 +46,22 @@ print_error() {
     echo -e "${RED}✗ $1${NC}"
 }
 
-# Error handling with option to continue
-check_error() {
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}ERROR: $1${NC}"
-        echo -e "${YELLOW}Would you like to continue anyway? (y/n)${NC}"
-        read -r response
-        if [[ "$response" != "y" ]]; then
-            echo "Setup aborted."
-            exit 1
-        fi
-    fi
+# Check if a command exists
+command_exists() {
+    command -v "$1" &> /dev/null
 }
 
 # Create directory if it doesn't exist
 ensure_dir() {
     if [ ! -d "$1" ]; then
         mkdir -p "$1"
-        check_error "Failed to create directory: $1"
-    fi
-}
-
-# Check if a command exists
-command_exists() {
-    command -v "$1" &> /dev/null
-}
-
-# Refresh PATH and available commands
-refresh_path() {
-    export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
-    hash -r
-}
-
-# Handle Windows permission issues safely
-handle_windows_permissions() {
-    local target_path="$1"
-    local operation="$2"  # "create", "modify", or "check"
-    
-    # Check if path is on a Windows drive
-    if [[ "$target_path" == /mnt/* ]]; then
-        if [[ "$operation" == "create" || "$operation" == "modify" ]]; then
-            # For create/modify operations, use an alternative approach
-            print_warning "Cannot directly modify files on Windows filesystem due to permission limitations."
-            print_warning "Using alternative approach for $target_path"
-            
-            # For files that need to be created in Windows filesystem, create them in Linux first
-            local temp_file=$(mktemp)
-            cat > "$temp_file"
-            
-            # Then use cmd.exe to copy them (which works around permission issues)
-            local win_path=$(wslpath -w "$target_path")
-            local temp_win_path=$(wslpath -w "$temp_file")
-            cmd.exe /c copy "$temp_win_path" "$win_path" > /dev/null 2>&1
-            
-            # Clean up
-            rm "$temp_file"
-            return 0
-        elif [[ "$operation" == "check" ]]; then
-            # Just check if file exists
-            if [ -e "$target_path" ]; then
-                return 0
-            else
-                return 1
-            fi
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}ERROR: Failed to create directory: $1${NC}"
+            return 1
         fi
-    else
-        # Not a Windows path, proceed normally
-        return 0
     fi
+    return 0
 }
-
-# Check if we're already using Zsh
-USING_ZSH=0
-if [ -n "$ZSH_VERSION" ]; then
-    USING_ZSH=1
-fi
-
-# --- Main functions ---
 
 # Create the necessary directory structure
 setup_workspace() {
@@ -147,26 +69,28 @@ setup_workspace() {
     print_step "Setting up directory structure..."
 
     # Main directory structure
-    ensure_dir ~/dev-env
-    ensure_dir ~/.local/bin
-    ensure_dir ~/bin
-    ensure_dir ~/tools
-    ensure_dir ~/dev
+    ensure_dir ~/dev-env || return 1
+    ensure_dir ~/.local/bin || return 1
+    ensure_dir ~/bin || return 1
+    ensure_dir ~/dev || return 1
 
-    # Create all config directories first to avoid "No such file or directory" errors
-    ensure_dir ~/dev-env/ansible/roles
-    ensure_dir ~/dev-env/configs/nvim/custom
-    ensure_dir ~/dev-env/configs/zsh
-    ensure_dir ~/dev-env/configs/tmux
-    ensure_dir ~/dev-env/configs/wsl
-    ensure_dir ~/dev-env/configs/git
-    ensure_dir ~/dev-env/bin
-    ensure_dir ~/dev-env/docs
+    # Create config directories
+    ensure_dir ~/dev-env/configs/nvim/custom || return 1
+    ensure_dir ~/dev-env/configs/zsh || return 1
+    ensure_dir ~/dev-env/configs/tmux || return 1
+    ensure_dir ~/dev-env/configs/wsl || return 1
+    ensure_dir ~/dev-env/configs/git || return 1
+    ensure_dir ~/dev-env/bin || return 1
+    ensure_dir ~/dev-env/docs || return 1
 
     SETUP_DIR="$HOME/dev-env"
-    cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory to $SETUP_DIR${NC}"; exit 1; }
+    cd "$SETUP_DIR" || { 
+        print_error "Failed to change directory to $SETUP_DIR"
+        return 1
+    }
     
     print_success "Directory structure created successfully"
+    return 0
 }
 
 # Update system packages
@@ -174,134 +98,55 @@ update_system() {
     print_header "Updating System Packages"
     print_step "Updating package lists..."
     sudo apt update
-    check_error "Failed to update package lists"
+    if [ $? -ne 0 ]; then
+        print_error "Failed to update package lists"
+        return 1
+    fi
 
     print_step "Upgrading packages..."
     sudo apt upgrade -y
-    check_error "Failed to upgrade packages"
+    if [ $? -ne 0 ]; then
+        print_error "Failed to upgrade packages"
+        return 1
+    }
     
     print_success "System packages updated successfully"
+    return 0
 }
 
 # Install core dependencies
 install_core_deps() {
-    print_header "Installing core dependencies"
+    print_header "Installing Core Dependencies"
     print_step "Installing essential packages..."
     
     sudo apt install -y curl wget git python3 python3-pip python3-venv unzip \
-        build-essential file cmake ripgrep fd-find fzf tmux zsh neofetch ansible
-    check_error "Failed to install core dependencies"
+        build-essential file cmake ripgrep fd-find fzf tmux zsh neofetch ansible \
+        jq bat htop
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to install core dependencies"
+        print_warning "You may need to run 'sudo apt update' first"
+        return 1
+    fi
+    
+    # Create symlinks for Debian-specific tool names if needed
+    if [ -f /usr/bin/fdfind ] && [ ! -f ~/.local/bin/fd ]; then
+        mkdir -p ~/.local/bin
+        ln -sf /usr/bin/fdfind ~/.local/bin/fd
+    fi
+    
+    if [ -f /usr/bin/batcat ] && [ ! -f ~/.local/bin/bat ]; then
+        mkdir -p ~/.local/bin
+        ln -sf /usr/bin/batcat ~/.local/bin/bat
+    fi
+    
+    # Add local bin to PATH in bashrc if not already there
+    if ! grep -q 'PATH="$HOME/.local/bin:$HOME/bin:$PATH"' ~/.bashrc; then
+        echo 'export PATH="$HOME/.local/bin:$HOME/bin:$PATH"' >> ~/.bashrc
+    fi
     
     print_success "Core dependencies installed successfully"
-    
-    # Make sure PATH includes our local bin directories
-    refresh_path
-}
-
-# Configure WSL for proper permissions and performance
-configure_wsl() {
-    print_header "Configuring WSL"
-    print_step "Setting up WSL configuration..."
-    
-    # Create /etc/wsl.conf with proper settings if it doesn't exist or needs updating
-    if [ ! -f /etc/wsl.conf ] || ! grep -q "metadata" /etc/wsl.conf; then
-        print_step "Creating WSL configuration file..."
-        
-        # Write to a temporary file first
-        cat > /tmp/wsl.conf << 'EOL'
-# WSL Configuration with optimized settings for development
-# This config maintains compatibility while improving performance
-
-[automount]
-enabled = true
-options = "metadata,umask=022,fmask=111"
-mountFsTab = true
-crossDistro = true
-
-[network]
-generateResolvConf = true
-generateHosts = true
-
-[interop]
-enabled = true
-appendWindowsPath = true
-
-[boot]
-command = ""
-
-[user]
-default = ubuntu
-EOL
-        
-        # Use sudo to move the file to /etc
-        sudo mv /tmp/wsl.conf /etc/wsl.conf
-        check_error "Failed to create WSL configuration file"
-        
-        print_success "WSL configuration updated"
-        print_warning "You'll need to restart WSL for these changes to take effect"
-        print_warning "Run 'wsl --shutdown' from PowerShell after setup completes"
-    else
-        print_step "WSL already configured properly"
-    fi
-
-    # Fix permissions for Windows VS Code access
-    print_step "Fixing permissions for VS Code access..."
-    # Check VS Code known locations and set proper permissions
-    VS_CODE_LOCATIONS=(
-        "/mnt/c/Program Files/Microsoft VS Code/bin/code"
-        "/mnt/c/Program Files/Microsoft VS Code/code.exe"
-        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/bin/code"
-        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/code.exe"
-        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code Insiders/bin/code-insiders"
-        "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code Insiders/code-insiders.exe"
-    )
-    
-    for location in "${VS_CODE_LOCATIONS[@]}"; do
-        for path in $location; do
-            if [ -f "$path" ]; then
-                print_step "Found VS Code at: $path"
-                # Permissions won't work on Windows filesystem, so we'll use a wrapper function
-                break
-            fi
-        done
-    done
-    
-    # Create a code command wrapper in the user's home directory
-    print_step "Creating VS Code wrapper function..."
-    cat > "$HOME/bin/code-wrapper.sh" << 'EOL'
-#!/bin/bash
-# VS Code wrapper script for WSL
-# This bypasses permission issues by using cmd.exe to launch code
-
-# If run with no arguments, open current directory
-if [ $# -eq 0 ]; then
-    cmd.exe /c "code" "$(wslpath -w "$(pwd)")" > /dev/null 2>&1
-    exit $?
-fi
-
-# Convert Linux paths to Windows paths when needed
-args=()
-for arg in "$@"; do
-    # Check if the argument is a file or directory that exists
-    if [ -e "$arg" ]; then
-        # Convert to Windows path
-        win_path=$(wslpath -w "$arg")
-        args+=("$win_path")
-    else
-        # Pass through as-is for flags or non-existent paths
-        args+=("$arg")
-    fi
-done
-
-# Launch VS Code via cmd.exe to avoid permission issues
-cmd.exe /c "code" "${args[@]}" > /dev/null 2>&1
-exit $?
-EOL
-    
-    chmod +x "$HOME/bin/code-wrapper.sh"
-    
-    print_success "VS Code wrapper created at $HOME/bin/code-wrapper.sh"
-    print_success "WSL configuration completed"
+    return 0
 }
 
 # Install Neofetch for system information display
@@ -310,11 +155,15 @@ install_neofetch() {
     if ! command_exists neofetch; then
         print_step "Installing Neofetch..."
         sudo apt install -y neofetch
-        check_error "Failed to install Neofetch"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Neofetch"
+            return 1
+        fi
         print_success "Neofetch installed successfully"
     else
         print_step "Neofetch is already installed"
     fi
+    return 0
 }
 
 # Install Neovim text editor
@@ -325,62 +174,84 @@ install_neovim() {
         
         # Create temporary directory for installation
         TEMP_DIR=$(mktemp -d)
-        check_error "Failed to create temporary directory for Neovim installation"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to create temporary directory for Neovim installation"
+            return 1
+        fi
         
-        cd "$TEMP_DIR" || { echo -e "${RED}Failed to change directory to $TEMP_DIR${NC}"; exit 1; }
+        cd "$TEMP_DIR" || { 
+            print_error "Failed to change directory to $TEMP_DIR"
+            return 1
+        }
         
         # Download Neovim AppImage
+        print_step "Downloading Neovim v${NVIM_VERSION}..."
         wget -q "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/nvim.appimage"
-        check_error "Failed to download Neovim AppImage"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to download Neovim AppImage"
+            return 1
+        fi
         
         # Make it executable
         chmod u+x nvim.appimage
-        check_error "Failed to make Neovim AppImage executable"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to make Neovim AppImage executable"
+            return 1
+        fi
         
         # Extract the AppImage
         print_step "Extracting Neovim AppImage..."
         ./nvim.appimage --appimage-extract
-        check_error "Failed to extract Neovim AppImage"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to extract Neovim AppImage"
+            return 1
+        fi
         
         # Create the target directory and move files
         print_step "Installing Neovim..."
         sudo mkdir -p /opt/nvim
-        check_error "Failed to create /opt/nvim directory"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to create /opt/nvim directory"
+            return 1
+        fi
         
         sudo cp -r squashfs-root/* /opt/nvim/
-        check_error "Failed to copy Neovim files to /opt/nvim"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to copy Neovim files to /opt/nvim"
+            return 1
+        fi
         
         # Create symlinks
         sudo ln -sf /opt/nvim/AppRun /usr/local/bin/nvim
-        check_error "Failed to create system-wide Neovim symlink"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to create system-wide Neovim symlink"
+            return 1
+        fi
         
         ln -sf /usr/local/bin/nvim ~/.local/bin/nvim
-        check_error "Failed to create user Neovim symlink"
         
         # Clean up temporary files
-        cd "$SETUP_DIR" || { echo -e "${RED}Failed to return to $SETUP_DIR${NC}"; exit 1; }
+        cd "$HOME" || {
+            print_error "Failed to return to home directory"
+            return 1
+        }
         rm -rf "$TEMP_DIR"
-        check_error "Failed to clean up temporary Neovim installation files"
         
         # Verify installation
         print_step "Verifying Neovim installation..."
-        refresh_path
-        
-        if ! command_exists nvim; then
-            print_warning "Neovim installation verification failed. Path may not be updated."
-            print_warning "Please try running: hash -r"
-            hash -r
-            if ! command_exists nvim; then
-                print_warning "Neovim still not found. Will continue but you may need to restart your terminal."
-            fi
-        else
+        if command_exists nvim; then
             nvim --version
             print_success "Neovim installed successfully"
+        else
+            print_warning "Neovim installation verification failed."
+            print_warning "You may need to restart your terminal or log out and back in."
+            return 1
         fi
     else
         print_step "Neovim is already installed"
         nvim --version
     fi
+    return 0
 }
 
 # Setup Neovim with Kickstart configuration
@@ -388,309 +259,39 @@ setup_nvim_config() {
     print_header "Setting up Neovim configuration"
     print_step "Setting up Kickstart Neovim configuration..."
 
-    # Improved approach for kickstart installation that properly handles existing directories
-    ensure_dir ~/.config
-    ensure_dir ~/.config/nvim
+    # Create necessary directories
+    ensure_dir ~/.config || return 1
+    ensure_dir ~/.config/nvim || return 1
 
-    # First, check if the directory already has a kickstart installation
+    # Check if kickstart is already installed
     if [ -f ~/.config/nvim/init.lua ] && grep -q "kickstart" ~/.config/nvim/init.lua; then
         print_step "Kickstart Neovim configuration already installed, updating..."
         # Just create the custom directory without touching kickstart setup
-        ensure_dir ~/.config/nvim/lua/custom
+        ensure_dir ~/.config/nvim/lua/custom || return 1
     else
         # Backup existing configuration if any
         if [ -d ~/.config/nvim ] && [ "$(ls -A ~/.config/nvim)" ]; then
             BACKUP_DIR="$HOME/.config/nvim_backup_$(date +%Y%m%d%H%M%S)"
             print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
             mv ~/.config/nvim "$BACKUP_DIR"
-            ensure_dir ~/.config/nvim
+            ensure_dir ~/.config/nvim || return 1
         fi
         
-        # Clone kickstart.nvim - fresh install
+        # Clone kickstart.nvim
         print_step "Installing Kickstart Neovim..."
         git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
-        check_error "Failed to clone Kickstart Neovim"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to clone Kickstart Neovim"
+            print_warning "Make sure git is installed and you have internet connectivity"
+            return 1
+        fi
         
         # Make sure custom directory exists
-        ensure_dir ~/.config/nvim/lua/custom
+        ensure_dir ~/.config/nvim/lua/custom || return 1
     fi
 
-    # Create custom init.lua to extend Kickstart
-    print_step "Creating custom Neovim configuration..."
-    cat > "$SETUP_DIR/configs/nvim/custom/init.lua" << 'EOL'
--- Custom NeoVim configuration extending Kickstart
--- This is loaded after the main Kickstart configuration
-
--- ================= DISPLAY SETTINGS =================
-vim.opt.relativenumber = true    -- Relative line numbers
-vim.opt.scrolloff = 8            -- Keep 8 lines visible when scrolling
-vim.opt.sidescrolloff = 8        -- Keep 8 columns left/right of cursor
-vim.opt.wrap = true              -- Wrap lines
-vim.opt.termguicolors = true     -- Full color support
-
--- ================= EDITOR BEHAVIOR =================
-vim.opt.expandtab = true         -- Use spaces instead of tabs
-vim.opt.shiftwidth = 2           -- Size of an indent
-vim.opt.tabstop = 2              -- Number of spaces tabs count for
-vim.opt.ignorecase = true        -- Ignore case in search patterns
-vim.opt.smartcase = true         -- Override ignorecase when pattern has uppercase
-
--- ================= KEY MAPPINGS =================
--- Use space as leader key
-vim.g.mapleader = " "
-
--- Window navigation
-vim.keymap.set('n', '<C-h>', '<C-w>h', { desc = 'Move to left window' })
-vim.keymap.set('n', '<C-j>', '<C-w>j', { desc = 'Move to below window' })
-vim.keymap.set('n', '<C-k>', '<C-w>k', { desc = 'Move to above window' })
-vim.keymap.set('n', '<C-l>', '<C-w>l', { desc = 'Move to right window' })
-
--- Quick save with leader+w
-vim.keymap.set('n', '<leader>w', ':w<CR>', { desc = 'Save file' })
-
--- Quick quit shortcuts
-vim.keymap.set('n', '<leader>q', ':q<CR>', { desc = 'Quit' })
-vim.keymap.set('n', '<leader>Q', ':qa!<CR>', { desc = 'Quit without saving' })
-
--- Buffer navigation
-vim.keymap.set('n', '<S-h>', ':bprevious<CR>', { desc = 'Previous buffer' })
-vim.keymap.set('n', '<S-l>', ':bnext<CR>', { desc = 'Next buffer' })
-
--- Better indenting - stay in visual mode
-vim.keymap.set('v', '<', '<gv', { desc = 'Outdent line' })
-vim.keymap.set('v', '>', '>gv', { desc = 'Indent line' })
-
--- Move selected text up and down
-vim.keymap.set('v', 'J', ":m '>+1<CR>gv=gv", { desc = 'Move selection down' })
-vim.keymap.set('v', 'K', ":m '<-2<CR>gv=gv", { desc = 'Move selection up' })
-
--- Terminal escape
-vim.keymap.set('t', '<Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
-
--- ================= CUSTOM COMMANDS =================
--- Easy access to terminal
-vim.api.nvim_create_user_command('T', 'split | terminal', {})
-
--- ================= AUTOCOMMANDS =================
--- Return to last edit position when opening files
-vim.api.nvim_create_autocmd('BufReadPost', {
-  pattern = '*',
-  callback = function()
-    local line = vim.fn.line
-    if line("'\"") > 0 and line("'\"") <= line("$") then
-      vim.cmd('normal! g`"')
-    end
-  end
-})
-
--- Auto close certain filetypes with q
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = { 'help', 'qf', 'man' },
-  callback = function()
-    vim.keymap.set('n', 'q', ':close<CR>', { buffer = true, silent = true })
-  end
-})
-
--- ================= THEME CONFIGURATION =================
--- Add Rose Pine theme with pure black background
-table.insert(require('lazy').plugins, {
-  'rose-pine/neovim',
-  name = 'rose-pine',
-  config = function()
-    require('rose-pine').setup({
-      variant = 'moon', -- moon, dawn, or main
-      dark_variant = 'moon',
-      disable_background = true,
-      disable_float_background = false,
-      disable_italics = false,
-      highlight_groups = {
-        Normal = { bg = "#000000" },
-        NormalFloat = { bg = "#000000" },
-        StatusLine = { bg = "#000000" },
-        StatusLineNC = { bg = "#000000" },
-        SignColumn = { bg = "#000000" },
-      }
-    })
-    
-    -- Set colorscheme after options
-    vim.cmd('colorscheme rose-pine')
-    
-    -- Set pure black background after colorscheme
-    vim.api.nvim_set_hl(0, "Normal", { bg = "#000000" })
-    vim.api.nvim_set_hl(0, "NormalFloat", { bg = "#000000" })
-    vim.api.nvim_set_hl(0, "NormalNC", { bg = "#000000" })
-  end,
-  priority = 1000, -- Load theme early
-})
-
--- Force pure black background again after other plugins load
-vim.api.nvim_create_autocmd("VimEnter", {
-  callback = function()
-    vim.api.nvim_set_hl(0, "Normal", { bg = "#000000" })
-    vim.api.nvim_set_hl(0, "NormalFloat", { bg = "#000000" })
-    vim.api.nvim_set_hl(0, "NormalNC", { bg = "#000000" })
-  end,
-})
-
--- ================= STARTUP SCREEN CONFIGURATION =================
--- Add startup.nvim for a beautiful start screen
-table.insert(require('lazy').plugins, {
-  'startup-nvim/startup.nvim',
-  dependencies = { 'nvim-telescope/telescope.nvim', 'nvim-lua/plenary.nvim' },
-  config = function()
-    require('startup').setup({
-      -- Theme inspired by dashboard but with pure black background
-      theme = 'dashboard',
-      
-      -- Override colors to ensure pure black background
-      colors = {
-        background = "#000000",
-        folded_section = "#56b6c2",
-      },
-      
-      -- Custom mappings/sections with useful commands
-      sections = {
-        header = {
-          type = "text",
-          oldfiles_directory = false,
-          align = "center",
-          fold_section = false,
-          title = "Header",
-          margin = 5,
-          content = {
-              "                                                                ",
-              "  ███╗   ██╗███████╗ ██████╗ ██╗   ██╗██╗███╗   ███╗    ██████╗ ████████╗██╗    ██╗ ",
-              "  ████╗  ██║██╔════╝██╔═══██╗██║   ██║██║████╗ ████║    ██╔══██╗╚══██╔══╝██║    ██║ ",
-              "  ██╔██╗ ██║█████╗  ██║   ██║██║   ██║██║██╔████╔██║    ██████╔╝   ██║   ██║ █╗ ██║ ",
-              "  ██║╚██╗██║██╔══╝  ██║   ██║╚██╗ ██╔╝██║██║╚██╔╝██║    ██╔══██╗   ██║   ██║███╗██║ ",
-              "  ██║ ╚████║███████╗╚██████╔╝ ╚████╔╝ ██║██║ ╚═╝ ██║    ██████╔╝   ██║   ╚███╔███╔╝ ",
-              "  ╚═╝  ╚═══╝╚══════╝ ╚═════╝   ╚═══╝  ╚═╝╚═╝     ╚═╝    ╚═════╝    ╚═╝    ╚══╝╚══╝  ",
-              "                                                                ",
-          },
-          highlight = "Statement",
-          default_color = "",
-          oldfiles_amount = 0,
-        },
-        -- Main mapping section with frequently used commands
-        main_buttons = {
-          type = "mapping",
-          oldfiles_directory = false,
-          align = "center",
-          fold_section = false,
-          title = "Basic Commands",
-          margin = 5,
-          content = {
-            { " Find File", "Telescope find_files", "<leader>ff" },
-            { " Find Word", "Telescope live_grep", "<leader>fg" },
-            { " Recent Files", "Telescope oldfiles", "<leader>fo" },
-            { " File Browser", "Telescope file_browser", "<leader>fb" },
-            { " Colorschemes", "Telescope colorscheme", "<leader>cs" },
-            { " New File", "lua require'startup'.new_file()", "<leader>nf" },
-          },
-          highlight = "String",
-          default_color = "",
-          oldfiles_amount = 0,
-        },
-        -- Advanced mapping section with development tools
-        dev_tools = {
-          type = "mapping",
-          oldfiles_directory = false,
-          align = "center",
-          fold_section = false,
-          title = "Development",
-          margin = 5,
-          content = {
-            { " Git Status", "Git", "<leader>gs" },
-            { " Toggle Terminal", "ToggleTerm", "<leader>t" },
-            { " Mason Installer", "Mason", "<leader>mi" },
-            { " LSP Info", "LspInfo", "<leader>li" },
-            { " Lazy Plugin Manager", "Lazy", "<leader>pl" },
-          },
-          highlight = "Function",
-          default_color = "",
-          oldfiles_amount = 0,
-        },
-        -- Bottom section with quick tips
-        bottom_buttons = {
-          type = "text",
-          oldfiles_directory = false,
-          align = "center",
-          fold_section = false,
-          title = "Quick Tips",
-          margin = 5,
-          content = function()
-            local tips = {
-              "💡 Press <leader>? to see all key bindings",
-              "💡 Use <C-hjkl> to navigate windows",
-              "💡 Close this screen with q",
-              "💡 Press <leader>ff to find files",
-              "💡 Press <leader>fg to search for text",
-            }
-            return {tips[math.random(#tips)]}
-          end,
-          highlight = "Comment",
-          default_color = "",
-          oldfiles_amount = 0,
-        },
-        -- Bottom information section
-        footer = {
-          type = "text",
-          oldfiles_directory = false,
-          align = "center",
-          fold_section = false,
-          title = "Footer",
-          margin = 5,
-          content = function()
-            local datetime = os.date(" %d-%m-%Y   %H:%M:%S")
-            local version = vim.version()
-            local nvim_version_info = "   v" .. version.major .. "." .. version.minor .. "." .. version.patch
-            return {datetime .. "   " .. nvim_version_info}
-          end,
-          highlight = "Special",
-          default_color = "",
-          oldfiles_amount = 0,
-        },
-      },
-      
-      options = {
-        mapping_keys = true,
-        cursor_column = 0.5,
-        empty_lines_between_mappings = true,
-        disable_statuslines = true,
-        paddings = {1, 3, 3, 1},
-      },
-      
-      mappings = {
-        execute_command = "<CR>",
-        open_file = "o",
-        open_file_split = "<c-o>",
-        open_section = "<TAB>",
-        open_help = "?",
-      },
-    })
-    
-    -- Force pure black background after startup screen loads
-    vim.api.nvim_create_autocmd("User", {
-      pattern = "StartupDone",
-      callback = function()
-        vim.api.nvim_set_hl(0, "Normal", { bg = "#000000" })
-        vim.api.nvim_set_hl(0, "NormalFloat", { bg = "#000000" })
-      end,
-    })
-  end
-})
-
--- ================= OTHER PLUGINS =================
--- Configure nvim-treesitter to install without prompts
-vim.g.treesitter_auto_install = true
-EOL
-    check_error "Failed to create custom Neovim configuration file"
-
-    # Copy the custom configuration to Neovim
-    cp "$SETUP_DIR/configs/nvim/custom/init.lua" ~/.config/nvim/lua/custom/init.lua
-    check_error "Failed to copy custom Neovim configuration"
-
-    print_success "Custom Neovim configuration updated"
+    print_success "Neovim Kickstart configuration installed"
+    return 0
 }
 
 # Setup Ansible
@@ -699,189 +300,179 @@ setup_ansible() {
     if ! command_exists ansible; then
         print_step "Installing Ansible..."
         sudo apt install -y ansible
-        check_error "Failed to install Ansible"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Ansible"
+            return 1
+        fi
         print_success "Ansible installed successfully!"
     else
         print_step "Ansible is already installed"
     fi
     
-    # Create Ansible playbooks directory structure
-    ensure_dir "$SETUP_DIR/ansible/roles/core-tools/tasks"
-    ensure_dir "$SETUP_DIR/ansible/roles/shell/tasks"
-    ensure_dir "$SETUP_DIR/ansible/roles/tmux/tasks"
-    ensure_dir "$SETUP_DIR/ansible/roles/wsl-specific/tasks"
-    ensure_dir "$SETUP_DIR/ansible/roles/git-config/tasks"
-    ensure_dir "$SETUP_DIR/ansible/roles/nodejs/tasks"
-    
-    # Create main playbook
-    print_step "Creating Ansible playbooks..."
-    cat > "$SETUP_DIR/ansible/setup.yml" << 'EOL'
----
-# Main playbook for WSL development environment
-- name: Set up WSL development environment
-  hosts: localhost
-  connection: local
-  become: false
-  
-  roles:
-    - core-tools     # Essential development tools
-    - shell          # Zsh with useful plugins
-    - tmux           # Terminal multiplexer
-    - wsl-specific   # WSL-specific optimizations
-    - git-config     # Git configuration
-    - nodejs         # Node.js and npm
-EOL
-    check_error "Failed to create main Ansible playbook"
-    
-    # Create core-tools role
-    cat > "$SETUP_DIR/ansible/roles/core-tools/tasks/main.yml" << 'EOL'
----
-# Essential development tools installation
-- name: Update package cache
-  become: true
-  apt:
-    update_cache: yes
-  
-- name: Install essential development packages
-  become: true
-  apt:
-    name:
-      # Core utilities
-      - ripgrep          # Better grep (rg) - CRITICAL for Telescope plugin
-      - fd-find          # Better find (fd)
-      - fzf              # Fuzzy finder
-      - tmux             # Terminal multiplexer
-      - zsh              # Better shell
-      - file             # Determine file type
-      - neofetch         # System info display
-      
-      # Development essentials
-      - build-essential  # Compilation tools
-      - git              # Version control
-      - curl             # Transfer data
-      - wget             # Download files
-      - unzip            # Extract archives
-      - python3-pip      # Python package manager
-      - nodejs           # Node.js for language servers
-      
-      # Additional useful tools
-      - jq               # JSON processor
-      - bat              # Better cat with syntax highlighting
-      - htop             # Interactive process viewer
-    state: present
-
-- name: Ensure local bin directory exists
-  file:
-    path: ~/.local/bin
-    state: directory
-    mode: '0755'
-
-- name: Ensure ~/bin directory exists
-  file:
-    path: ~/bin
-    state: directory
-    mode: '0755'
-
-- name: Create symbolic links for Debian-specific tool names
-  file:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
-    state: link
-    force: yes
-  with_items:
-    - { src: "/usr/bin/fdfind", dest: "~/.local/bin/fd" }
-    - { src: "/usr/bin/batcat", dest: "~/.local/bin/bat" }
-  when: >
-    (item.src == "/usr/bin/fdfind" and lookup('file', '/usr/bin/fdfind', errors='ignore'))
-    or (item.src == "/usr/bin/batcat" and lookup('file', '/usr/bin/batcat', errors='ignore'))
-
-- name: Update .bashrc to include local bin in PATH
-  lineinfile:
-    path: ~/.bashrc
-    line: 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"'
-    regexp: '^export PATH=.*\$HOME/bin.*\$PATH.*$'
-    state: present
-EOL
-    check_error "Failed to create core-tools role"
+    # Create Ansible directory structure
+    ensure_dir "$SETUP_DIR/ansible/roles/core-tools/tasks" || return 1
+    ensure_dir "$SETUP_DIR/ansible/roles/shell/tasks" || return 1
+    ensure_dir "$SETUP_DIR/ansible/roles/tmux/tasks" || return 1
+    ensure_dir "$SETUP_DIR/ansible/roles/wsl-specific/tasks" || return 1
+    ensure_dir "$SETUP_DIR/ansible/roles/git-config/tasks" || return 1
+    ensure_dir "$SETUP_DIR/ansible/roles/nodejs/tasks" || return 1
     
     print_success "Ansible setup completed"
+    return 0
 }
 
-# Setup Zsh shell
+# Setup Zsh shell with Oh My Zsh
 setup_zsh() {
-    print_header "Setting up Zsh configurations"
+    print_header "Setting up Zsh with Oh My Zsh"
     
-    # Create shell role
-    cat > "$SETUP_DIR/ansible/roles/shell/tasks/main.yml" << 'EOL'
----
-# Setup Zsh with useful plugins
+    # Install zsh if not already installed
+    if ! command_exists zsh; then
+        print_step "Installing Zsh..."
+        sudo apt install -y zsh
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Zsh"
+            return 1
+        fi
+    fi
+    
+    # Install Oh My Zsh if not already installed
+    if [ ! -d "$HOME/.oh-my-zsh" ]; then
+        print_step "Installing Oh My Zsh..."
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Oh My Zsh"
+            print_warning "Make sure you have internet connectivity"
+            return 1
+        fi
+    else
+        print_step "Oh My Zsh is already installed"
+    fi
+    
+    # Install custom plugins
+    print_step "Installing Zsh plugins..."
+    
+    # zsh-autosuggestions
+    if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions" ]; then
+        git clone https://github.com/zsh-users/zsh-autosuggestions \
+            ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+    fi
+    
+    # zsh-syntax-highlighting
+    if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting" ]; then
+        git clone https://github.com/zsh-users/zsh-syntax-highlighting.git \
+            ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+    fi
+    
+    print_success "Zsh setup completed"
+    return 0
+}
 
-- name: Check if Oh My Zsh is installed
-  stat:
-    path: ~/.oh-my-zsh
-  register: oh_my_zsh_installed
+# Setup Zsh configuration file
+setup_zshrc() {
+    print_header "Creating Zsh configuration file"
+    print_step "Creating Zsh configuration..."
+    
+    cat > "$HOME/.zshrc" << 'EOL'
+# Path to Oh My Zsh installation
+export ZSH="$HOME/.oh-my-zsh"
 
-- name: Install Oh My Zsh
-  shell: sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-  when: not oh_my_zsh_installed.stat.exists
+# Theme - simple but informative
+ZSH_THEME="robbyrussell"
 
-- name: Install Zsh plugins
-  git:
-    repo: "{{ item.repo }}"
-    dest: "{{ item.dest }}"
-    depth: 1
-  loop:
-    - { repo: 'https://github.com/zsh-users/zsh-autosuggestions', dest: '~/.oh-my-zsh/custom/plugins/zsh-autosuggestions' }
-    - { repo: 'https://github.com/zsh-users/zsh-syntax-highlighting.git', dest: '~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting' }
+# Plugins - keep minimal but useful
+plugins=(
+  git                      # Git integration
+  zsh-autosuggestions      # Command suggestions as you type
+  zsh-syntax-highlighting  # Syntax highlighting for commands
+  fzf                      # Fuzzy finder
+  tmux                     # Tmux integration
+)
 
-- name: Install Zoxide (smart cd command)
-  shell: curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
-  args:
-    creates: ~/.local/bin/zoxide
+source $ZSH/oh-my-zsh.sh
 
-- name: Copy Zsh configuration
-  copy:
-    src: "{{ playbook_dir }}/../configs/zsh/zshrc"
-    dest: ~/.zshrc
-    backup: yes
+# Environment setup
+export EDITOR='nvim'
+export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+# NVM setup if it exists
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# FZF Configuration
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+
+# Run neofetch at startup for system info
+if [ -f "/usr/bin/neofetch" ]; then
+  /usr/bin/neofetch
+fi
+
+# Aliases - focused on productivity
+alias vim='nvim'
+alias v='nvim'
+alias ls='ls --color=auto'
+alias ll='ls -la'
+alias la='ls -A'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias c='clear'
+
+# Git aliases
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit -m'
+alias gp='git push'
+alias gl='git pull'
+
+# Tmux aliases
+alias t='tmux'
+alias ta='tmux attach -t'
+alias tn='tmux new -s'
+alias tl='tmux ls'
+
+# Use Linux versions of tools
+if [ -f /usr/bin/git ]; then
+    alias git='/usr/bin/git'
+fi
+
+if [ -f /usr/bin/python3 ]; then
+    alias python3='/usr/bin/python3'
+fi
+
+# Set npm to use Linux mode if available
+if command -v npm >/dev/null 2>&1; then
+    npm config set os linux >/dev/null 2>&1
+fi
 EOL
-    check_error "Failed to create shell role"
-
-    print_success "Zsh configuration completed"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create Zsh configuration file"
+        return 1
+    fi
+    
+    print_success "Zsh configuration file created"
+    return 0
 }
 
 # Setup tmux 
 setup_tmux() {
     print_header "Setting up tmux configuration"
     
-    # Create tmux role
-    cat > "$SETUP_DIR/ansible/roles/tmux/tasks/main.yml" << 'EOL'
----
-# Tmux setup with ThePrimeagen-inspired configuration
-
-- name: Check if tmux is installed
-  command: which tmux
-  register: tmux_installed
-  ignore_errors: true
-  changed_when: false
-
-- name: Install tmux
-  become: true
-  apt:
-    name: tmux
-    state: present
-  when: tmux_installed.rc != 0
-
-- name: Copy tmux configuration
-  copy:
-    src: "{{ playbook_dir }}/../configs/tmux/tmux.conf"
-    dest: ~/.tmux.conf
-    backup: yes
-EOL
-    check_error "Failed to create tmux role"
+    # Check if tmux is installed
+    if ! command_exists tmux; then
+        print_step "Installing tmux..."
+        sudo apt install -y tmux
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install tmux"
+            return 1
+        fi
+    fi
     
     # Create tmux configuration
-    cat > "$SETUP_DIR/configs/tmux/tmux.conf" << 'EOL'
+    print_step "Creating tmux configuration..."
+    cat > "$HOME/.tmux.conf" << 'EOL'
 # Use Ctrl+a as prefix (easier to reach than Ctrl+b)
 unbind C-b
 set-option -g prefix C-a
@@ -915,21 +506,6 @@ set -g mouse on
 # Increase scrollback buffer
 set -g history-limit 10000
 
-# Copy mode with vi keys
-setw -g mode-keys vi
-bind-key -T copy-mode-vi v send -X begin-selection
-bind-key -T copy-mode-vi y send -X copy-pipe-and-cancel "clip.exe"
-
-# Fast pane switching
-bind -n M-h select-pane -L
-bind -n M-j select-pane -D
-bind -n M-k select-pane -U
-bind -n M-l select-pane -R
-
-# Session management
-bind S command-prompt -p "New Session:" "new-session -A -s '%%'"
-bind K confirm kill-session
-
 # Status bar - clean and informative
 set -g status-position top
 set -g status-style bg=default
@@ -938,265 +514,59 @@ set -g status-left-length 40
 set -g status-right "#[fg=cyan]%d %b %R"
 set -g status-interval 60
 EOL
-    check_error "Failed to create tmux configuration"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create tmux configuration"
+        return 1
+    fi
     
     print_success "tmux configuration completed"
+    return 0
 }
 
 # Setup WSL utilities
 setup_wsl_utilities() {
     print_header "Setting up WSL utilities"
     
-    # Create WSL-specific role
-    cat > "$SETUP_DIR/ansible/roles/wsl-specific/tasks/main.yml" << 'EOL'
----
-# WSL-specific optimizations and integrations
-
-- name: Create bin directory
-  file:
-    path: ~/bin
-    state: directory
-    mode: '0755'
-
-- name: Copy WSL utility scripts
-  copy:
-    src: "{{ playbook_dir }}/../configs/wsl/{{ item }}"
-    dest: ~/bin/{{ item }}
-    mode: '0755'
-  with_items:
-    - wsl-path-fix.sh
-    - winopen
-    - clip-copy
-    - fix-vscode-permissions.sh
-
-- name: Get Windows username
-  shell: cmd.exe /c echo %USERNAME% | tr -d '\r\n'
-  register: windows_username
-  changed_when: false
-
-- name: Ensure .wslconfig exists in Windows home
-  copy:
-    src: "{{ playbook_dir }}/../configs/wsl/wslconfig"
-    dest: "/mnt/c/Users/{{ windows_username.stdout }}/.wslconfig"
-    backup: yes
-  ignore_errors: yes
-EOL
-    check_error "Failed to create wsl-specific role"
+    # Create bin directory
+    ensure_dir ~/bin || return 1
     
-    # Path fix script
-    print_step "Creating WSL path fix script..."
-    cat > "$SETUP_DIR/configs/wsl/wsl-path-fix.sh" << 'EOL'
+    # Create VS Code wrapper
+    print_step "Creating VS Code wrapper script..."
+    cat > "$HOME/bin/code-wrapper.sh" << 'EOL'
 #!/bin/bash
-# Safe Path Filtering for WSL - Prevents conflicts while keeping Windows tools accessible
+# VS Code wrapper script for WSL
 
-# Fix code page issues that can cause blank terminal
-if command -v chcp.com &>/dev/null; then
-    chcp.com 65001 &>/dev/null
+# If run with no arguments, open current directory
+if [ $# -eq 0 ]; then
+    cmd.exe /c "code" "$(wslpath -w "$(pwd)")" > /dev/null 2>&1
+    exit $?
 fi
 
-# Backup original PATH for safety
-original_path="$PATH"
-
-# SAFETY FUNCTION: Fall back to a known good PATH if things break
-safety_fallback() {
-    echo "Path filtering failed, using safe default PATH"
-    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:$HOME/bin:$HOME/.local/bin:/mnt/c/Windows/system32:/mnt/c/Windows"
-}
-
-# Safe path filtering with error handling
-safe_filter_path() {
-    local input_path="$1"
-    local result
-    
-    # Try to filter, but fallback to original if it fails
-    result=$(echo "$input_path" | sed 's|:/mnt/c/Program Files/nodejs[^:]*||g' 2>/dev/null) || return 1
-    result=$(echo "$result" | sed 's|:/mnt/c/Users/.*/AppData/Roaming/npm||g' 2>/dev/null) || return 1
-    result=$(echo "$result" | sed 's|:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*||g' 2>/dev/null) || return 1
-    
-    # Validate result contains essential directories
-    if [[ "$result" != *"/usr/bin"* ]]; then
-        return 1
+# Convert Linux paths to Windows paths when needed
+args=()
+for arg in "$@"; do
+    # Check if the argument is a file or directory that exists
+    if [ -e "$arg" ]; then
+        # Convert to Windows path
+        win_path=$(wslpath -w "$arg")
+        args+=("$win_path")
+    else
+        # Pass through as-is for flags or non-existent paths
+        args+=("$arg")
     fi
-    
-    echo "$result"
-    return 0
-}
+done
 
-# Try to filter PATH, fall back to safety if it fails
-filtered_path=$(safe_filter_path "$original_path")
-if [ $? -ne 0 ]; then
-    safety_fallback
-else
-    # Ensure essential directories are at the front
-    essential_paths="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-    user_paths="$HOME/bin:$HOME/.local/bin"
-    
-    # Add NVM bin to the beginning of PATH if it exists
-    nvm_path=""
-    if [ -d "$HOME/.nvm" ]; then
-        NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
-        if [ -n "$NVM_BIN" ]; then
-            nvm_path="$NVM_BIN:"
-        fi
-    fi
-    
-    # Build the final PATH safely
-    export PATH="${nvm_path}${user_paths}:${essential_paths}:${filtered_path}"
-fi
-
-# Ensure we use Linux versions of critical tools
-if [ -f /usr/bin/git ]; then
-    alias git='/usr/bin/git'
-fi
-
-if [ -f /usr/bin/python3 ]; then
-    alias python3='/usr/bin/python3'
-fi
-
-# Node.js and npm handling with safety checks
-if [ -d "$HOME/.nvm" ]; then
-    # Find latest node version safely
-    NODE_VERSION=$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | sort -r | head -n 1)
-    
-    if [ -n "$NODE_VERSION" ] && [ -f "$HOME/.nvm/versions/node/$NODE_VERSION/bin/node" ]; then
-        # Only create alias if the binary exists
-        alias node="$HOME/.nvm/versions/node/$NODE_VERSION/bin/node"
-        if [ -f "$HOME/.nvm/versions/node/$NODE_VERSION/bin/npm" ]; then
-            alias npm="$HOME/.nvm/versions/node/$NODE_VERSION/bin/npm"
-        fi
-    fi
-    
-    # Set npm config to use Linux if npm is available
-    if command -v npm >/dev/null 2>&1; then
-        npm config set os linux >/dev/null 2>&1
-    fi
-elif [ -f /usr/bin/node ]; then
-    # Use system node if available and nvm isn't set up
-    alias node="/usr/bin/node"
-    if [ -f /usr/bin/npm ]; then
-        alias npm="/usr/bin/npm"
-    fi
-fi
-
-# VS Code integration - ensure 'code' command works
-if [ -f /mnt/c/Program\ Files/Microsoft\ VS\ Code/bin/code ] || [ -f /mnt/c/Program\ Files/Microsoft\ VS\ Code/code.exe ]; then
-    code() {
-        local arg_path="$1"
-        if [ -n "$arg_path" ]; then
-            # Convert path to Windows format if it's a valid path
-            if [ -e "$arg_path" ]; then
-                arg_path=$(wslpath -w "$arg_path")
-            fi
-        else
-            # If no args, use current directory
-            arg_path=$(wslpath -w "$(pwd)")
-        fi
-        /mnt/c/Windows/System32/cmd.exe /c "code $arg_path"
-    }
-fi
-
-# Safety check for Claude Code
-if command -v claude >/dev/null 2>&1; then
-    if [[ "$(which claude)" == *"/mnt/c/"* ]]; then
-        echo "Warning: Claude is using Windows installation. Use 'npm install -g @anthropic-ai/claude-code --no-os-check' to reinstall."
-    fi
-fi
-
-# Final verification that node is from WSL
-if command -v node >/dev/null 2>&1; then
-    if [[ "$(which node)" == *"/mnt/c/"* ]]; then
-        echo "Warning: Using Windows Node.js. This can cause issues with WSL tools like Claude Code."
-        echo "Consider running: source $HOME/dev-env/bin/nvm-init.sh"
-    fi
-fi
+# Launch VS Code via cmd.exe to avoid permission issues
+cmd.exe /c "code" "${args[@]}" > /dev/null 2>&1
+exit $?
 EOL
-    check_error "Failed to create wsl-path-fix.sh"
-    chmod +x "$SETUP_DIR/configs/wsl/wsl-path-fix.sh"
-
-    # VS Code permission fix script
-    print_step "Creating VS Code permission fix script..."
-    cat > "$SETUP_DIR/configs/wsl/fix-vscode-permissions.sh" << 'EOL'
-#!/bin/bash
-# Fix VS Code permissions for WSL integration
-
-echo "Fixing VS Code permissions for WSL..."
-
-# Check if VS Code is installed in common locations
-VS_CODE_PATHS=(
-  "/mnt/c/Program Files/Microsoft VS Code/bin/code"
-  "/mnt/c/Program Files/Microsoft VS Code/code.exe"
-  "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/bin/code"
-  "/mnt/c/Users/*/AppData/Local/Programs/Microsoft VS Code/code.exe"
-)
-
-# Function to test if 'code' command works
-test_code_command() {
-  echo "Testing 'code' command..."
-  code --version >/dev/null 2>&1
-  return $?
-}
-
-# First, try to use the code command directly with a workaround
-if ! test_code_command; then
-  echo "Creating a 'code' wrapper function in your shell profile..."
-  
-  # Add to both bash and zsh profiles
-  for profile in ~/.bashrc ~/.zshrc; do
-    if [ -f "$profile" ]; then
-      # Check if the function already exists
-      if ! grep -q "function code()" "$profile"; then
-        cat >> "$profile" << 'EOF'
-
-# VS Code wrapper function to handle WSL permission issues
-function code() {
-  local arg_path="$1"
-  if [ -n "$arg_path" ]; then
-    # Convert path to Windows format if it's a valid path
-    if [ -e "$arg_path" ]; then
-      arg_path=$(wslpath -w "$arg_path")
-    fi
-  else
-    # If no args, use current directory
-    arg_path=$(wslpath -w "$(pwd)")
-  fi
-  cmd.exe /c "code $arg_path" >/dev/null 2>&1
-}
-EOF
-        echo "Added VS Code wrapper to $profile"
-      fi
-    fi
-  done
-  
-  # Create a local bin version too
-  mkdir -p ~/.local/bin
-  cat > ~/.local/bin/code << 'EOF'
-#!/bin/bash
-# VS Code wrapper script to handle WSL permission issues
-arg_path="$1"
-if [ -n "$arg_path" ]; then
-  # Convert path to Windows format if it's a valid path
-  if [ -e "$arg_path" ]; then
-    arg_path=$(wslpath -w "$arg_path")
-  fi
-else
-  # If no args, use current directory
-  arg_path=$(wslpath -w "$(pwd)")
-fi
-cmd.exe /c "code $arg_path" >/dev/null 2>&1
-EOF
-  chmod +x ~/.local/bin/code
-  echo "Created standalone VS Code wrapper in ~/.local/bin/code"
-fi
-
-echo "VS Code permission fixes applied. Please restart your terminal."
-echo "Use 'code .' to open VSCode in the current directory"
-EOL
-    chmod +x "$SETUP_DIR/configs/wsl/fix-vscode-permissions.sh"
-    check_error "Failed to create VS Code permission fix script"
-
-    # Windows open script
-    print_step "Creating winopen utility..."
-    cat > "$SETUP_DIR/configs/wsl/winopen" << 'EOL'
+    
+    chmod +x "$HOME/bin/code-wrapper.sh"
+    
+    # Create Windows path opener
+    print_step "Creating Windows path opener utility..."
+    cat > "$HOME/bin/winopen" << 'EOL'
 #!/bin/bash
 # Open current directory or specified path in Windows Explorer
 
@@ -1204,12 +574,12 @@ path_to_open="${1:-.}"
 windows_path=$(wslpath -w "$(realpath "$path_to_open")")
 explorer.exe "$windows_path"
 EOL
-    check_error "Failed to create winopen script"
-    chmod +x "$SETUP_DIR/configs/wsl/winopen"
-
-    # Clipboard utility
+    
+    chmod +x "$HOME/bin/winopen"
+    
+    # Create clipboard utility
     print_step "Creating clipboard utility..."
-    cat > "$SETUP_DIR/configs/wsl/clip-copy" << 'EOL'
+    cat > "$HOME/bin/clip-copy" << 'EOL'
 #!/bin/bash
 # Copy text to Windows clipboard
 
@@ -1221,220 +591,19 @@ else
   echo -n "$*" | clip.exe
 fi
 EOL
-    check_error "Failed to create clip-copy script"
-    chmod +x "$SETUP_DIR/configs/wsl/clip-copy"
-
-    # WSL config
-    print_step "Creating WSL config..."
-    cat > "$SETUP_DIR/configs/wsl/wslconfig" << 'EOL'
-[wsl2]
-memory=6GB
-processors=4
-swap=2GB
-localhostForwarding=true
-kernelCommandLine=sysctl.vm.swappiness=10
-EOL
-    check_error "Failed to create wslconfig file"
+    
+    chmod +x "$HOME/bin/clip-copy"
+    
+    # Create alias for code-wrapper in bashrc
+    if ! grep -q "alias code=" ~/.bashrc; then
+        echo 'alias code="$HOME/bin/code-wrapper.sh"' >> ~/.bashrc
+    fi
     
     print_success "WSL utilities setup completed"
+    return 0
 }
 
-# Setup Zsh configuration file
-setup_zshrc() {
-    print_header "Creating Zsh configuration file"
-    print_step "Creating Zsh configuration..."
-    
-    cat > "$SETUP_DIR/configs/zsh/zshrc" << 'EOL'
-# Path to Oh My Zsh installation
-export ZSH="$HOME/.oh-my-zsh"
-
-# Theme - simple but informative
-ZSH_THEME="robbyrussell"
-
-# Plugins - keep minimal but useful
-plugins=(
-  git                      # Git integration
-  zsh-autosuggestions      # Command suggestions as you type
-  zsh-syntax-highlighting  # Syntax highlighting for commands
-  fzf                      # Fuzzy finder
-  tmux                     # Tmux integration
-)
-
-source $ZSH/oh-my-zsh.sh
-
-# Environment setup
-export EDITOR='nvim'
-export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
-
-# NVM setup - using our custom script for consistency
-if [ -f "$HOME/dev-env/bin/nvm-init.sh" ]; then
-  source "$HOME/dev-env/bin/nvm-init.sh"
-else
-  # Fallback to direct NVM setup if the script doesn't exist yet
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-fi
-
-# Initialize zoxide (smart cd command)
-if command -v zoxide >/dev/null; then
-  eval "$(zoxide init zsh)"
-fi
-
-# FZF Configuration
-export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
-export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
-export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
-
-# Run neofetch at startup - explicitly use the full path to ensure Linux version is used
-if [ -f "/usr/bin/neofetch" ]; then
-  /usr/bin/neofetch
-else
-  echo "Neofetch not found at /usr/bin/neofetch"
-fi
-
-# Show welcome message with helpful links
-if [ -f "$HOME/dev-env/bin/welcome-message.sh" ]; then
-  source "$HOME/dev-env/bin/welcome-message.sh"
-fi
-
-# Aliases - focused on productivity
-alias vim='nvim'
-alias v='nvim'
-alias ls='ls --color=auto'
-alias ll='ls -la'
-alias la='ls -A'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias c='clear'
-
-# Git aliases
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit -m'
-alias gp='git push'
-alias gl='git pull'
-alias glog='git log --oneline --graph'
-
-# Tmux aliases
-alias t='tmux'
-alias ta='tmux attach -t'
-alias tn='tmux new -s'
-alias tl='tmux ls'
-
-# Project navigation
-alias proj='cd ~/dev && cd $(find . -maxdepth 2 -type d -not -path "*/\.*" | fzf)'
-
-# WSL-specific aliases
-alias explorer='explorer.exe'
-alias winopen='~/bin/winopen'
-alias clip='~/bin/clip-copy'
-
-# Fix WSL path issues (use our script)
-if [ -f ~/bin/wsl-path-fix.sh ]; then
-  source ~/bin/wsl-path-fix.sh
-fi
-
-# Edit config function - makes it easy to edit your configs
-editconfig() {
-  local configs=(
-    "zsh:$HOME/dev-env/configs/zsh/zshrc"
-    "tmux:$HOME/dev-env/configs/tmux/tmux.conf"
-    "nvim:$HOME/dev-env/configs/nvim/custom/init.lua"
-    "ansible:$HOME/dev-env/ansible/setup.yml"
-    "git:$HOME/dev-env/configs/git/gitconfig"
-  )
-  
-  local selected=$(printf "%s\n" "${configs[@]}" | cut -d ':' -f 1 | fzf --prompt="Select config to edit: ")
-  
-  if [[ -n $selected ]]; then
-    local file=$(printf "%s\n" "${configs[@]}" | grep "^$selected:" | cut -d ':' -f 2)
-    if [ -f "$file" ]; then
-      $EDITOR "$file"
-      echo "Don't forget to run ~/dev-env/update.sh to apply changes"
-    else
-      echo "Config file not found: $file"
-    fi
-  fi
-}
-
-# Add the editconfig function to your command palette
-alias ec='editconfig'
-
-# Create a new project with a standard structure
-newproject() {
-  if [ -z "$1" ]; then
-    echo "Usage: newproject <project-name> [<template>]"
-    echo "Available templates: node, python, web (default: basic)"
-    return 1
-  fi
-  
-  local project_name="$1"
-  local template="${2:-basic}"
-  local project_dir="$HOME/dev/$project_name"
-  
-  if [ -d "$project_dir" ]; then
-    echo "Error: Project directory $project_dir already exists"
-    return 1
-  fi
-  
-  mkdir -p "$project_dir"
-  cd "$project_dir" || return
-  
-  # Create basic structure
-  mkdir -p src docs tests
-  touch README.md
-  
-  # Create template-specific files
-  case "$template" in
-    node)
-      echo "Creating Node.js project: $project_name"
-      echo '{"name":"'$project_name'","version":"1.0.0","description":"","main":"index.js","scripts":{"test":"echo \"Error: no test specified\" && exit 1"},"keywords":[],"author":"","license":"ISC"}' > package.json
-      mkdir -p src/{controllers,models,routes}
-      touch src/index.js
-      touch .gitignore
-      echo -e "node_modules/\ndist/\n.env\n" > .gitignore
-      ;;
-      
-    python)
-      echo "Creating Python project: $project_name"
-      mkdir -p "$project_name"
-      touch "$project_name/__init__.py"
-      touch setup.py
-      echo -e "import setuptools\n\nsetuptools.setup(\n    name=\"$project_name\",\n    version=\"0.1.0\",\n    packages=setuptools.find_packages(),\n)" > setup.py
-      touch .gitignore
-      echo -e "__pycache__/\n*.py[cod]\n*$py.class\n.env\nvenv/\n.pytest_cache/\n" > .gitignore
-      ;;
-      
-    web)
-      echo "Creating web project: $project_name"
-      mkdir -p src/{css,js,assets}
-      touch src/index.html
-      touch src/css/style.css
-      touch src/js/main.js
-      echo -e "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>$project_name</title>\n    <link rel=\"stylesheet\" href=\"css/style.css\">\n</head>\n<body>\n    <h1>$project_name</h1>\n    \n    <script src=\"js/main.js\"></script>\n</body>\n</html>" > src/index.html
-      ;;
-      
-    *)
-      echo "Creating basic project: $project_name"
-      ;;
-  esac
-  
-  # Initialize git
-  git init
-  
-  echo "Project created at: $project_dir"
-  echo "To get started:"
-  echo "  cd $project_dir"
-  echo "  nvim ."
-}
-EOL
-    check_error "Failed to create Zsh configuration file"
-    
-    print_success "Zsh configuration file created"
-}
-
-# Setup Node.js and npm via NVM (properly configured for WSL)
+# Setup Node.js and npm via NVM
 setup_nodejs() {
     print_header "Setting up Node.js via NVM"
     
@@ -1442,9 +611,14 @@ setup_nodejs() {
         print_step "Installing NVM (Node Version Manager)..."
         # Install development tools needed for building Node.js
         sudo apt install -y build-essential libssl-dev
+        
         # Install NVM
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
-        check_error "Failed to install NVM"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install NVM"
+            print_warning "Make sure you have internet connectivity"
+            return 1
+        fi
         
         # Initialize NVM in current shell
         export NVM_DIR="$HOME/.nvm"
@@ -1452,7 +626,10 @@ setup_nodejs() {
         
         print_step "Installing latest LTS version of Node.js..."
         nvm install --lts
-        check_error "Failed to install Node.js"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Node.js"
+            return 1
+        fi
         
         # Set default Node.js version
         nvm alias default node
@@ -1468,57 +645,18 @@ setup_nodejs() {
         if ! command_exists node; then
             print_step "Installing latest LTS version of Node.js..."
             nvm install --lts
-            check_error "Failed to install Node.js"
+            if [ $? -ne 0 ]; then
+                print_error "Failed to install Node.js"
+                return 1
+            fi
             nvm alias default node
         else
             print_step "Node.js is already installed: $(node --version)"
         fi
     fi
     
-    # Create NVM initialization script for consistent access
-    print_step "Creating NVM initialization script..."
-    cat > "$SETUP_DIR/bin/nvm-init.sh" << 'EOFINNER'
-#!/bin/bash
-# Initialize NVM and set up Node.js path
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-
-# Make sure Node.js is properly configured
-if command -v nvm >/dev/null 2>&1; then
-  # Ensure a Node.js version is active
-  if ! command -v node >/dev/null 2>&1; then
-    echo "Activating Node.js..."
-    nvm use default >/dev/null 2>&1 || nvm use --lts >/dev/null 2>&1
-  fi
-fi
-EOFINNER
-    chmod +x "$SETUP_DIR/bin/nvm-init.sh"
-    check_error "Failed to create NVM initialization script"
-
-    # Add specific PATH filter for Node.js to .bashrc instead of changing wsl.conf
-    if ! grep -q "Filter out Windows Node.js from PATH" ~/.bashrc; then
-        print_step "Adding Node.js path filter to ~/.bashrc..."
-        cat >> ~/.bashrc << 'EOFINNER'
-
-# Filter out Windows Node.js from PATH to prevent conflicts
-# This is a safer approach than disabling all Windows paths
-PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs%%g')
-PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs/%%g')
-PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Users/.*/AppData/Roaming/npm%%g')
-
-# Ensure WSL Node.js is used
-if [ -d "$HOME/.nvm" ]; then
-  NVM_BIN=$(find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -r | head -n 1)
-  if [ -n "$NVM_BIN" ]; then
-    export PATH="$NVM_BIN:$PATH"
-  fi
-fi
-EOFINNER
-        check_error "Failed to update .bashrc with Node.js path filter"
-    fi
-    
     print_success "Node.js environment configured successfully"
+    return 0
 }
 
 # Setup Claude Code from Anthropic
@@ -1536,37 +674,13 @@ setup_claude_code() {
     if ! command_exists node; then
         print_warning "Node.js not found. Installing it first..."
         setup_nodejs
-    fi
-    
-    # Verify we're using the correct (WSL) version of Node.js
-    NODE_PATH=$(which node)
-    if [[ "$NODE_PATH" == *"/mnt/c/"* ]]; then
-        print_warning "Using Windows Node.js ($NODE_PATH). This can cause problems."
-        print_warning "Will try to fix by ensuring correct WSL Node.js is used..."
-        setup_nodejs
-        
-        # Re-init NVM to ensure we get the right paths
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        
-        # Check again
-        NODE_PATH=$(which node)
-        if [[ "$NODE_PATH" == *"/mnt/c/"* ]]; then
-            print_error "Still using Windows Node.js. Applying selective path filter..."
-            # Apply path filter directly
-            PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Program Files/nodejs[^:]*%%g')
-            PATH=$(echo "$PATH" | sed -e 's%:/mnt/c/Users/.*/AppData/Roaming/npm%%g')
-            
-            # Try one more time
-            NODE_PATH=$(which node)
-            if [[ "$NODE_PATH" == *"/mnt/c/"* ]]; then
-                print_error "Unable to use WSL Node.js. Please run setup again after a terminal restart."
-                return 1
-            fi
+        if [ $? -ne 0 ]; then
+            print_error "Failed to setup Node.js, which is required for Claude Code"
+            return 1
         fi
     fi
     
-    print_step "Using Node.js: $(node --version) at $NODE_PATH"
+    print_step "Using Node.js: $(node --version) at $(which node)"
     print_step "Using npm: $(npm --version) at $(which npm)"
     
     # Apply WSL-specific workarounds as mentioned in the Claude Code docs
@@ -1576,79 +690,35 @@ setup_claude_code() {
     # Install Claude Code
     print_step "Installing Claude Code..."
     npm install -g @anthropic-ai/claude-code --no-os-check
-    check_error "Failed to install Claude Code"
+    if [ $? -ne 0 ]; then
+        print_error "Failed to install Claude Code"
+        print_warning "This may be due to internet connectivity or npm configuration issues"
+        return 1
+    fi
     
     # Verify installation
     if command_exists claude; then
         print_success "Claude Code installed successfully!"
-        
-        # Add note about usage and troubleshooting
-        cat << 'EOFHELP'
-
-Claude Code is now installed! Usage:
-- In your project directory, run: claude
-- For first-time authorization, run: claude auth login
-
-If you encounter issues:
-1. Make sure WSL is using Linux Node.js (not Windows): which node
-2. If you see "Node not found" errors, run: source ~/dev-env/bin/nvm-init.sh 
-3. Try reinstalling with: npm install -g @anthropic-ai/claude-code --force --no-os-check
-
-For more information, visit: https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview
-EOFHELP
     else
-        print_warning "Claude Code installation might have issues. Please see troubleshooting steps below:"
-        cat << 'EOFTROUBLE'
-
-Troubleshooting Claude Code in WSL:
-
-1. Check your Node.js path:
-   - Run: which node
-   - It should show a Linux path like /home/username/.nvm/... not a Windows path (/mnt/c/).
-
-2. OS/platform detection issues:
-   - Run: npm config set os linux 
-   - Install with: npm install -g @anthropic-ai/claude-code --force --no-os-check
-
-3. Path conflicts:
-   - Run: source ~/dev-env/bin/nvm-init.sh
-   - This script prioritizes the Linux Node.js installation in your PATH
-
-See documentation: https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview
-EOFTROUBLE
-    fi
-    
-    # Add tab completion to zshrc if not already there
-    if [ -f ~/.zshrc ] && ! grep -q "claude completion" ~/.zshrc; then
-        print_step "Adding Claude Code tab completion to Zsh..."
-        echo '# Claude Code tab completion' >> ~/.zshrc
-        echo 'if command -v claude >/dev/null; then' >> ~/.zshrc
-        echo '  eval "$(claude completion zsh)"' >> ~/.zshrc
-        echo 'fi' >> ~/.zshrc
-    fi
-    
-    # Add tab completion to bashrc if not already there
-    if [ -f ~/.bashrc ] && ! grep -q "claude completion" ~/.bashrc; then
-        print_step "Adding Claude Code tab completion to Bash..."
-        echo '# Claude Code tab completion' >> ~/.bashrc
-        echo 'if command -v claude >/dev/null; then' >> ~/.bashrc
-        echo '  eval "$(claude completion bash)"' >> ~/.bashrc
-        echo 'fi' >> ~/.bashrc
+        print_warning "Claude Code installation might have issues."
+        print_warning "Try manually running: npm install -g @anthropic-ai/claude-code --force --no-os-check"
+        return 1
     fi
     
     print_success "Claude Code setup completed"
+    return 0
 }
 
 # Create Claude Code documentation
 create_claude_code_docs() {
     print_header "Creating Claude Code documentation"
     
-    ensure_dir "$SETUP_DIR/docs"
+    ensure_dir "$SETUP_DIR/docs" || return 1
     
     cat > "$SETUP_DIR/docs/claude-code-guide.md" << 'EOL'
 # Claude Code Guide
 
-Claude Code is an AI-assisted coding tool from Anthropic that helps you write, understand, and improve your code. This guide covers basic usage and troubleshooting in WSL.
+Claude Code is an AI-assisted coding tool from Anthropic that helps you write, understand, and improve your code.
 
 ## Getting Started
 
@@ -1677,10 +747,6 @@ claude auth login
    - Show Claude some code with an error
    - Ask: "Why doesn't this work?" or "Fix this bug"
 
-4. **Improve code**:
-   - Ask: "How can I make this code more efficient?"
-   - Or: "Refactor this to follow best practices"
-
 ## Common Commands
 
 - `claude` - Start Claude Code in your project
@@ -1692,240 +758,34 @@ claude auth login
 
 If you encounter problems running Claude Code in WSL:
 
-### Node.js Path Issues
-
-If you see "exec: node: not found" when running claude:
-
 1. Check which Node.js you're using:
    ```bash
    which node
    which npm
    ```
    
-   These should point to Linux paths (starting with /usr/ or ~/.nvm/), not Windows paths (starting with /mnt/c/).
+   These should point to Linux paths (starting with /home/), not Windows paths (starting with /mnt/c/).
 
-2. If using Windows Node.js:
-   ```bash
-   # Initialize NVM to use WSL Node.js
-   source ~/dev-env/bin/nvm-init.sh
-   ```
-
-3. Apply the path fix script:
-   ```bash
-   source ~/bin/wsl-path-fix.sh
-   ```
-
-### OS Detection Issues
-
-If Claude Code fails to install or run due to platform issues:
-
-1. Set npm to use Linux:
+2. Set npm to use Linux:
    ```bash
    npm config set os linux
    ```
 
-2. Reinstall with force flag:
+3. Reinstall with force flag:
    ```bash
    npm install -g @anthropic-ai/claude-code --force --no-os-check
    ```
 
-### WSL Path Configuration
-
-Our setup uses selective path filtering that:
-- Keeps Windows tools accessible (like `code .` for VS Code)
-- Prevents conflicts with Node.js by filtering Windows Node.js paths
-- Prioritizes Linux tools over Windows equivalents
-
-You don't need to restart WSL after installation, and Windows tools will still work!
-
-## For More Information
-
-Visit the [official Claude Code documentation](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview)
+For more information, visit the [official Claude Code documentation](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview)
 EOL
-    check_error "Failed to create Claude Code documentation"
     
-    print_success "Claude Code documentation created"
-}
-
-# Create a recovery script that can fix a blank terminal
-create_recovery_script() {
-    print_header "Creating recovery script"
-    print_step "Creating a recovery script in case of terminal issues..."
-    
-    # Create a recovery script in the user's home directory instead of Windows filesystem
-    cat > "$HOME/fix-terminal.sh" << 'EOFRECOVERY'
-#!/bin/bash
-# WSL Terminal Recovery Script
-# If you're seeing a blank terminal, this will reset your configuration to a working state
-
-# Reset user's bashrc to working state
-if [ -f "$HOME/.bashrc.bak" ]; then
-    cp "$HOME/.bashrc.bak" "$HOME/.bashrc"
-else
-    # Create minimal working bashrc
-    cat > "$HOME/.bashrc" << 'EOL'
-# Basic .bashrc that should work reliably
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/bin:$HOME/.local/bin"
-
-# Source global definitions
-if [ -f /etc/bashrc ]; then
-    . /etc/bashrc
-fi
-
-# Enable bash completion
-if [ -f /etc/bash_completion ]; then
-    . /etc/bash_completion
-fi
-
-# Basic prompt
-PS1='\u@\h:\w\$ '
-
-# Fix code page issues that can cause blank terminal
-if command -v chcp.com &>/dev/null; then
-    chcp.com 65001 &>/dev/null
-fi
-EOL
-fi
-
-# Create a note about what happened
-echo "Terminal has been reset to a basic working state. Your previous configuration was backed up." > "$HOME/TERMINAL_WAS_RESET.txt"
-echo "Run the ~/dev-env/update.sh script to restore the full development environment with safer settings." >> "$HOME/TERMINAL_WAS_RESET.txt"
-
-echo "Terminal has been reset. Please restart your WSL session."
-EOFRECOVERY
-    
-    chmod +x "$HOME/fix-terminal.sh"
-    check_error "Failed to create recovery script"
-    
-    # Get the current username for the instructions
-    CURRENT_USER=$(whoami)
-    
-    # Create instructions file for Windows users with the current username
-    cat > "$HOME/RECOVERY_INSTRUCTIONS.txt" << EOF
-IF YOU EXPERIENCE A BLANK TERMINAL OR PERMISSION ISSUES IN WSL:
-
-Follow these steps carefully:
-
-1. Open Windows PowerShell as Administrator
-2. Run these commands:
-   
-   wsl --shutdown
-   wsl -d Debian -u root
-   
-3. Once you're in WSL as root, run:
-   
-   bash /home/$CURRENT_USER/fix-terminal.sh
-   
-4. Exit WSL (type 'exit') and restart it
-
-FIXING PERMISSION ISSUES:
-
-If you continue to have permission problems, run:
-
-   sudo nano /etc/wsl.conf
-
-And make sure it contains:
-
-[automount]
-enabled = true
-options = "metadata,uid=1000,gid=1000,umask=022"
-mountFsTab = true
-
-[interop]
-enabled = true
-appendWindowsPath = true
-
-Save with Ctrl+O, then Exit with Ctrl+X.
-Then restart WSL with 'wsl --shutdown' from PowerShell.
-EOF
-
-    print_success "Recovery scripts created in your home directory"
-    print_warning "If you experience issues, see $HOME/RECOVERY_INSTRUCTIONS.txt"
-}
-
-# Create a PowerShell shortcut to launch WSL with a minimal working configuration
-create_windows_shortcut() {
-    print_header "Creating Windows shortcut for safe WSL launch"
-    print_step "Creating a Windows shortcut to safely launch WSL..."
-    
-    # Get Windows username
-    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
-    
-    # Create the script in the Linux home directory for safety
-    SCRIPT_PATH="$HOME/wsl-safe-launch.ps1"
-    cat > "$SCRIPT_PATH" << 'EOL'
-# PowerShell script to launch WSL with a minimal working configuration
-Write-Host "Launching WSL in safe mode..." -ForegroundColor Green
-
-# Shutdown WSL first to ensure clean state
-wsl --shutdown
-
-# Set the environment variable to use a minimal bashrc
-$env:WSL_SAFE_MODE = "1"
-
-# Launch WSL with the environment variable 
-wsl -e bash -c '
-if [ "$WSL_SAFE_MODE" = "1" ]; then
-    echo "WSL Safe Mode Activated"
-    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/bin:$HOME/.local/bin"
-    
-    # Fix codepage
-    if command -v chcp.com &>/dev/null; then
-        chcp.com 65001 &>/dev/null
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create Claude Code documentation"
+        return 1
     fi
     
-    # Override PS1 to indicate safe mode
-    export PS1="\[\e[33m\][SAFE MODE]\[\e[0m\] \u@\h:\w\$ "
-    
-    # Instructions
-    echo ""
-    echo "You are now in WSL Safe Mode with a minimal working configuration."
-    echo "To recover your normal environment, run: ~/dev-env/update.sh"
-    echo ""
-    
-    # Start bash interactive shell
-    exec bash
-fi
-'
-
-# Keep PowerShell window open
-Read-Host "Press Enter to exit"
-EOL
-    
-    # Create bat file in home directory
-    BATCH_PATH="$HOME/wsl-safe-launch.bat"
-    cat > "$BATCH_PATH" << EOL
-@echo off
-echo Launching WSL in Safe Mode...
-powershell.exe -ExecutionPolicy Bypass -File "%USERPROFILE%\\wsl-safe-launch.ps1"
-EOL
-    
-    # Create instructions for the user to move this to Windows desktop
-    INSTRUCTIONS_PATH="$HOME/WINDOWS_SHORTCUT_INSTRUCTIONS.txt"
-    cat > "$INSTRUCTIONS_PATH" << EOL
-TO CREATE A SAFE LAUNCH SHORTCUT ON YOUR WINDOWS DESKTOP:
-
-1. Open Windows File Explorer and navigate to:
-   \\wsl$\\Debian\\home\\$USER
-
-2. Copy these two files to your Windows Desktop:
-   - wsl-safe-launch.ps1
-   - wsl-safe-launch.bat
-
-3. Create a shortcut on your desktop to the .bat file:
-   - Right-click on wsl-safe-launch.bat
-   - Select "Create shortcut"
-   - Rename it to "WSL Safe Mode"
-
-If you experience terminal issues, run this shortcut to start WSL in a safe mode
-with minimal configuration.
-EOL
-    
-    chmod +x "$SCRIPT_PATH"
-    chmod +x "$BATCH_PATH"
-    
-    print_success "Safe launch scripts created in your home directory"
-    print_warning "Follow instructions in $INSTRUCTIONS_PATH to create Windows shortcuts"
+    print_success "Claude Code documentation created"
+    return 0
 }
 
 # Create update script
@@ -1944,353 +804,98 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 
-# Error handling function
-check_error() {
-  if [ $? -ne 0 ]; then
-    echo -e "${RED}ERROR: $1${NC}"
-    echo -e "${YELLOW}Would you like to continue anyway? (y/n)${NC}"
-    read -r response
-    if [[ "$response" != "y" ]]; then
-      echo "Setup aborted."
-      exit 1
-    fi
-  fi
-}
+echo -e "${BLUE}Updating System Packages...${NC}"
+sudo apt update && sudo apt upgrade -y
 
-# Create directory if it doesn't exist
-ensure_dir() {
-  if [ ! -d "$1" ]; then
-    mkdir -p "$1"
-    check_error "Failed to create directory: $1"
-  fi
-}
-
-# Refresh PATH
-refresh_path() {
-  export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
-  hash -r
-}
-
-# Make sure PATH includes local bin directory
-refresh_path
-
-# Get directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Navigate to our environment directory
-cd "$SCRIPT_DIR" || { echo -e "${RED}Failed to change directory${NC}"; exit 1; }
-
-# Check for custom variables
-if [ -f "config.env" ]; then
-  source config.env
-fi
-
-# Update Neovim configuration
-echo -e "${BLUE}Updating Neovim configuration...${NC}"
-# Ensure directory exists
-ensure_dir ~/.config/nvim/lua/custom
-cp "$SCRIPT_DIR/configs/nvim/custom/init.lua" ~/.config/nvim/lua/custom/init.lua
-check_error "Failed to update Neovim configuration"
-
-# Update WSL utilities
-echo -e "${BLUE}Updating WSL utilities...${NC}"
-# Ensure bin directory exists
-ensure_dir ~/bin
-
-# Copy and make executable
-cp "$SCRIPT_DIR/configs/wsl/wsl-path-fix.sh" ~/bin/
-cp "$SCRIPT_DIR/configs/wsl/winopen" ~/bin/
-cp "$SCRIPT_DIR/configs/wsl/clip-copy" ~/bin/
-chmod +x ~/bin/wsl-path-fix.sh ~/bin/winopen ~/bin/clip-copy
-check_error "Failed to update WSL utilities"
-
-# Install Neovim providers using virtual environment
-echo -e "${BLUE}Installing Neovim providers...${NC}"
-ensure_dir ~/.config/nvim/venv
-
-# Check if python3-venv is installed
-if ! dpkg -l | grep -q python3-venv; then
-  echo -e "${YELLOW}Python3-venv package is required but not installed${NC}"
-  echo -e "${YELLOW}Installing python3-venv...${NC}"
-  sudo apt update
-  sudo apt install -y python3-venv python3-pip
-  check_error "Failed to install python3-venv"
-fi
-  
-# Check if we need to create a virtual environment
-if [ ! -f ~/.config/nvim/venv/bin/python ]; then
-  # Create virtual environment
-  python3 -m venv ~/.config/nvim/venv
-  check_error "Failed to create Python virtual environment"
-fi
-
-# Install Python provider in the virtual environment
-~/.config/nvim/venv/bin/pip install pynvim
-check_error "Failed to install Python provider for Neovim"
-
-# Configure Neovim to use the virtual environment
-mkdir -p ~/.config/nvim/after/plugin
-cat > ~/.config/nvim/after/plugin/python-provider.lua << 'EOFINNER'
--- Configure Neovim Python provider to use virtual environment
-vim.g.python3_host_prog = vim.fn.expand('~/.config/nvim/venv/bin/python')
-EOFINNER
-
-# Install Node.js provider if nvm is available
-if [ -f "$HOME/.nvm/nvm.sh" ]; then
-  echo -e "${BLUE}Installing Node.js provider...${NC}"
-  export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-  npm install -g neovim
-else
-  echo -e "${YELLOW}NVM not found, skipping Node.js provider installation${NC}"
-fi
-
-# Configure nvim-treesitter
-mkdir -p ~/.config/nvim/after/plugin
-cat > ~/.config/nvim/after/plugin/treesitter-config.lua << 'EOFINNER'
--- Configure nvim-treesitter to install without prompts
-require('nvim-treesitter.configs').setup({
-  auto_install = true,
-  ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "python", "rust" },
-  sync_install = false,
-})
-EOFINNER
-
-echo -e "${GREEN}Neovim providers and language parsers configuration completed${NC}"
-echo -e "${YELLOW}You can verify the installation by running :checkhealth in Neovim${NC}"
-
-# Update the PATH in current shell and .bashrc if not already set
-if ! grep -q 'PATH="$HOME/bin:$HOME/.local/bin:$PATH"' ~/.bashrc; then
-  echo 'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
-  echo -e "${YELLOW}Added PATH update to ~/.bashrc${NC}"
-  echo -e "${YELLOW}Run 'source ~/.bashrc' to apply changes to current session${NC}"
-fi
-
-# Run our Ansible playbook
-echo -e "${BLUE}Updating your development environment...${NC}"
-ansible-playbook -i localhost, "$SCRIPT_DIR/ansible/setup.yml"
-check_error "Ansible playbook execution failed"
-
-# Run the fix-neovim script to ensure all Neovim components are properly set up
-if [ -f "$SCRIPT_DIR/bin/fix-neovim.sh" ]; then
-  echo -e "${BLUE}Ensuring Neovim is properly configured...${NC}"
-  "$SCRIPT_DIR/bin/fix-neovim.sh"
-  check_error "Failed to run Neovim fix script"
-fi
+echo -e "${BLUE}Updating Node.js packages...${NC}"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+nvm install --lts --reinstall-packages-from=default
 
 # Check for Claude Code updates
 if command -v claude >/dev/null 2>&1; then
   echo -e "${BLUE}Updating Claude Code...${NC}"
-  
-  # Make sure we're using the correct Node.js
-  export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-  
-  # Set npm config for WSL compatibility
   npm config set os linux
-  
-  # Update Claude Code
   npm update -g @anthropic-ai/claude-code --no-os-check
   echo -e "${GREEN}Claude Code updated${NC}"
-else
-  echo -e "${YELLOW}Claude Code not found, skipping update${NC}"
-  echo -e "${YELLOW}You can install it with: npm install -g @anthropic-ai/claude-code --no-os-check${NC}"
 fi
 
 echo -e "${GREEN}Environment updated successfully!${NC}"
-echo -e "${YELLOW}Remember: You can customize any aspect by editing files in the configs/ directory${NC}"
-echo -e "\n${BLUE}To use the custom commands:${NC}"
-echo -e "  - Make sure to restart your terminal or run: source ~/.bashrc"
-echo -e "  - Then try commands like 'winopen', 'clip', etc."
-echo -e "  - Read the documentation at ~/dev-env/docs/ for more information"
 ENDOFFILE
-    check_error "Failed to create update script"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create update script"
+        return 1
+    fi
+    
     chmod +x "$SETUP_DIR/update.sh"
-    check_error "Failed to make update script executable"
+    if [ $? -ne 0 ]; then
+        print_error "Failed to make update script executable"
+        return 1
+    fi
     
     print_success "Update script created successfully"
+    return 0
 }
 
-# Create final completion message
+# Display completion message
 display_completion_message() {
-    print_title "Setup Complete!"
+    echo -e "\n${PURPLE}=======================${NC}"
+    echo -e "${PURPLE}|    Setup Complete!   |${NC}"
+    echo -e "${PURPLE}=======================${NC}"
     echo -e "${GREEN}Your WSL developer environment is ready to use!${NC}"
     
-    echo -e "\n${BLUE}Path Compatibility:${NC}"
-    echo -e "  ${CYAN}We've used a selective path filtering approach that keeps Windows commands${NC}"
-    echo -e "  ${CYAN}accessible while preventing conflicts with Node.js and npm.${NC}"
-    echo -e "  ${CYAN}This means 'code .' and other Windows commands will still work!${NC}"
+    echo -e "\n${BLUE}Features installed:${NC}"
+    echo -e "- Neovim with Kickstart configuration"
+    echo -e "- Zsh with Oh My Zsh"
+    echo -e "- Tmux terminal multiplexer"
+    echo -e "- Node.js via NVM"
+    echo -e "- Claude Code AI assistant"
     
-    echo -e "\n${BLUE}Beginner-Friendly Features:${NC}"
-    echo -e "1. ${CYAN}Interactive startup screen${NC} - Just type ${YELLOW}nvim${NC} to see it"
-    echo -e "2. ${CYAN}Press F1 in Neovim${NC} for a quick reference guide"
-    echo -e "3. ${CYAN}Create new projects easily${NC} with ${YELLOW}newproject name template${NC}"
-    echo -e "4. ${CYAN}Read the beginner's guide:${NC} ${YELLOW}nvim ~/dev-env/docs/beginners-guide.md${NC}"
-    echo -e "5. ${CYAN}Claude Code AI assistant${NC} - Just type ${YELLOW}claude${NC} in your project directory"
+    echo -e "\n${BLUE}To update your environment in the future:${NC}"
+    echo -e "- Run ${YELLOW}~/dev-env/update.sh${NC}"
     
-    echo -e "\n${BLUE}In case of issues:${NC}"
-    echo -e "  ${YELLOW}If you have terminal issues, run the recovery script from your home directory${NC}"
-    
-    echo -e "\n${PURPLE}Neovim has been configured with a pure black Rose Pine theme!${NC}"
-    echo -e "\n${GREEN}Happy learning and coding!${NC}"
+    echo -e "\n${PURPLE}Happy coding!${NC}"
 }
 
-# Modify how we handle PATH filtering to be safer
-safer_path_filter() {
-    print_header "Setting up safe PATH filtering"
-    
-    # Back up original .bashrc before modifying it
-    if [ ! -f ~/.bashrc.bak ]; then
-        cp ~/.bashrc ~/.bashrc.bak
-        check_error "Failed to backup .bashrc"
-    fi
-    
-    # Create a temporary file for the new content
-    TMP_RC=$(mktemp)
-    
-    # First add all the original content up to any existing PATH filter section
-    grep -B 10000 "WSL-DEV-SETUP PATH FILTER" ~/.bashrc > "$TMP_RC" 2>/dev/null || cp ~/.bashrc "$TMP_RC"
-    
-    # Add our new safer PATH filter section
-    cat >> "$TMP_RC" << 'EOFPATHFILTER'
+# --- Main Script Execution ---
+echo -e "${PURPLE}===============================================${NC}"
+echo -e "${PURPLE}| WSL Development Environment Setup v${SCRIPT_VERSION} |${NC}"
+echo -e "${PURPLE}===============================================${NC}"
+echo -e "${GREEN}This script will set up a development environment optimized for WSL Debian${NC}"
 
-# WSL-DEV-SETUP PATH FILTER - SAFER VERSION
-# This ensures we always have a functional PATH
-
-# Define safe PATH components that must always be available
-SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$HOME/bin:$HOME/.local/bin"
-
-# Only filter Windows paths that cause specific problems
-safe_filter_windows_path() {
-    local input_path="$1"
-    # Only filter specific problematic paths, not all Windows paths
-    echo "$input_path" | sed 's|:/mnt/c/Program Files/nodejs[^:]*||g' | \
-                          sed 's|:/mnt/c/Users/.*/AppData/Roaming/npm||g' | \
-                          sed 's|:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*||g'
-}
-
-# Ensure our PATH always starts with essential directories
-if [[ -n "$PATH" ]]; then
-    # Make a safe copy of the original PATH
-    ORIGINAL_PATH="$PATH"
-    
-    # Start with our safe essential PATH
-    export PATH="$SAFE_PATH"
-    
-    # Add back Windows system directories we need
-    if [[ -d "/mnt/c/Windows/system32" ]]; then
-        export PATH="$PATH:/mnt/c/Windows/system32:/mnt/c/Windows"
-    fi
-    
-    # Add filtered original PATH components 
-    FILTERED_PATH=$(safe_filter_windows_path "$ORIGINAL_PATH")
-    if [[ -n "$FILTERED_PATH" ]]; then
-        export PATH="$PATH:$FILTERED_PATH"
-    fi
-else
-    # Fall back to minimum safe PATH if something went wrong
-    export PATH="$SAFE_PATH"
-fi
-
-# Set npm config to use Linux if npm is available
-if command -v npm >/dev/null 2>&1; then
-    npm config set os linux >/dev/null 2>&1
-fi
-
-# Make sure we use Linux versions of critical tools with explicit aliases
-if [ -f /usr/bin/git ]; then
-    alias git='/usr/bin/git'
-fi
-
-if [ -f /usr/bin/python3 ]; then
-    alias python3='/usr/bin/python3'
-fi
-
-# VS Code integration - ensure 'code' command works
-if [ -f "$HOME/bin/code-wrapper.sh" ]; then
-    alias code="$HOME/bin/code-wrapper.sh"
-fi
-
-# NOTE: We don't use chcp.com or any terminal controls that might break the display
-EOFPATHFILTER
-
-    # Replace the old .bashrc with the new content
-    mv "$TMP_RC" ~/.bashrc
-    chmod 644 ~/.bashrc
-    
-    print_success "Safe PATH filtering configured"
-}
-
-# --- Script execution ---
-print_title "Beginner-Friendly WSL Development Environment Setup v$SCRIPT_VERSION"
-echo -e "${GREEN}This script will set up a complete development environment optimized for WSL Debian${NC}"
-echo -e "${GREEN}Perfect for beginners - everything you need to start coding with modern tools${NC}"
-
-# Setup workspace first
-setup_workspace
-
-# Update system and install dependencies
-update_system
-install_core_deps
-
-# Configure WSL with proper mount options
-configure_wsl
-
-# Install and configure Neofetch 
-install_neofetch
-
-# Install Neovim
-install_neovim
-
-# Setup Neovim configuration
-setup_nvim_config
-
-# Setup Ansible
-setup_ansible
-
-# Setup Zsh and related configs
-setup_zsh
-setup_zshrc 
-
-# Setup tmux
-setup_tmux
-
-# Setup WSL utilities
-setup_wsl_utilities
-
-# Setup Node.js and npm via NVM (properly configured for WSL)
-setup_nodejs
-
-# Setup Claude Code from Anthropic
-setup_claude_code
-
-# Create Claude Code documentation
-create_claude_code_docs
-
-# Create update script
-create_update_script
-
-# Create a recovery script in case of terminal issues
-create_recovery_script
-
-# Create a Windows shortcut for safe WSL launch
-create_windows_shortcut
-
-# Apply safer path filtering that won't break the terminal
-safer_path_filter
+# Execute setup functions in sequence, but stop if any fails
+setup_workspace || exit 1
+update_system || exit 1
+install_core_deps || exit 1
+install_neofetch || exit 1
+install_neovim || exit 1
+setup_nvim_config || exit 1
+setup_ansible || exit 1
+setup_zsh || exit 1
+setup_zshrc || exit 1
+setup_tmux || exit 1
+setup_wsl_utilities || exit 1
+setup_nodejs || exit 1
+setup_claude_code || exit 1
+create_claude_code_docs || exit 1
+create_update_script || exit 1
 
 # Final setup and display completion message
 display_completion_message
 
-# Don't automatically run the update script as it might cause issues
 echo -e "\n${GREEN}Setup complete! To apply changes, please run:${NC}"
 echo -e "${YELLOW}source ~/.bashrc${NC}"
-echo -e "${GREEN}or restart your terminal${NC}"
+echo -e "${YELLOW}or${NC} ${GREEN}restart your terminal${NC}"
 
-echo -e "\n${BLUE}To complete setup, run:${NC}"
-echo -e "${YELLOW}cd $SETUP_DIR && ./update.sh${NC}"
+# Set zsh as default shell (optional prompt)
+if [ "$SHELL" != "/usr/bin/zsh" ] && [ -f /usr/bin/zsh ]; then
+    echo -e "\n${BLUE}Would you like to set Zsh as your default shell? (y/n)${NC}"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        chsh -s /usr/bin/zsh
+        echo -e "${GREEN}Zsh set as default shell. Please log out and log back in for this to take effect.${NC}"
+    fi
+fi
 
-echo -e "\n${GREEN}Installation is complete! You can safely close and reopen your terminal.${NC}"
-
-# Exit successfully
 exit 0
