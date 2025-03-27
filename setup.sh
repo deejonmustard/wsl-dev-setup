@@ -2129,8 +2129,7 @@ display_completion_message() {
     echo -e "5. ${CYAN}Claude Code AI assistant${NC} - Just type ${YELLOW}claude${NC} in your project directory"
     
     echo -e "\n${BLUE}In case of issues:${NC}"
-    echo -e "  ${YELLOW}If you see a blank terminal after restart, run C:\\wsl-recovery\\FixWSLTerminal.bat${NC}"
-    echo -e "  ${YELLOW}from Windows to recover your terminal${NC}"
+    echo -e "  ${YELLOW}If you have terminal issues, run the recovery script from your home directory${NC}"
     
     echo -e "\n${PURPLE}Neovim has been configured with a pure black Rose Pine theme!${NC}"
     echo -e "\n${GREEN}Happy learning and coding!${NC}"
@@ -2146,170 +2145,78 @@ safer_path_filter() {
         check_error "Failed to backup .bashrc"
     fi
     
-    # Add codepage fix to handle potential blank terminal issues
-    print_step "Adding codepage configuration to prevent blank terminal..."
-    if ! grep -q "Fix codepage for WSL terminal" ~/.bashrc; then
-        cat >> ~/.bashrc << 'EOFCODEPAGE'
-
-# Fix codepage for WSL terminal (prevents blank terminal issues)
-if command -v chcp.com &>/dev/null; then
-    chcp.com 65001 &>/dev/null
-fi
-EOFCODEPAGE
-        check_error "Failed to add codepage fix to .bashrc"
-    fi
+    # Create a temporary file for the new content
+    TMP_RC=$(mktemp)
     
-    # Use a safer approach for PATH filtering with try/catch equivalent
-    print_step "Setting up safer PATH filtering..."
-    if ! grep -q "WSL-DEV-SETUP PATH FILTER" ~/.bashrc; then
-        cat >> ~/.bashrc << 'EOFPATHFILTER'
+    # First add all the original content up to any existing PATH filter section
+    grep -B 10000 "WSL-DEV-SETUP PATH FILTER" ~/.bashrc > "$TMP_RC" 2>/dev/null || cp ~/.bashrc "$TMP_RC"
+    
+    # Add our new safer PATH filter section
+    cat >> "$TMP_RC" << 'EOFPATHFILTER'
 
 # WSL-DEV-SETUP PATH FILTER - SAFER VERSION
-# === Path and Environment Configuration for WSL ===
+# This ensures we always have a functional PATH
 
-# Set npm to use Linux mode
+# Define safe PATH components that must always be available
+SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$HOME/bin:$HOME/.local/bin"
+
+# Only filter Windows paths that cause specific problems
+safe_filter_windows_path() {
+    local input_path="$1"
+    # Only filter specific problematic paths, not all Windows paths
+    echo "$input_path" | sed 's|:/mnt/c/Program Files/nodejs[^:]*||g' | \
+                          sed 's|:/mnt/c/Users/.*/AppData/Roaming/npm||g' | \
+                          sed 's|:/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript/[^:]*||g'
+}
+
+# Ensure our PATH always starts with essential directories
+if [[ -n "$PATH" ]]; then
+    # Make a safe copy of the original PATH
+    ORIGINAL_PATH="$PATH"
+    
+    # Start with our safe essential PATH
+    export PATH="$SAFE_PATH"
+    
+    # Add back Windows system directories we need
+    if [[ -d "/mnt/c/Windows/system32" ]]; then
+        export PATH="$PATH:/mnt/c/Windows/system32:/mnt/c/Windows"
+    fi
+    
+    # Add filtered original PATH components 
+    FILTERED_PATH=$(safe_filter_windows_path "$ORIGINAL_PATH")
+    if [[ -n "$FILTERED_PATH" ]]; then
+        export PATH="$PATH:$FILTERED_PATH"
+    fi
+else
+    # Fall back to minimum safe PATH if something went wrong
+    export PATH="$SAFE_PATH"
+fi
+
+# Set npm config to use Linux if npm is available
 if command -v npm >/dev/null 2>&1; then
     npm config set os linux >/dev/null 2>&1
 fi
 
-# Ensure Windows Terminal uses UTF-8
-if [[ -n "$WT_SESSION" ]]; then
-    export LC_ALL=C.UTF-8
-    export LANG=C.UTF-8
+# Make sure we use Linux versions of critical tools with explicit aliases
+if [ -f /usr/bin/git ]; then
+    alias git='/usr/bin/git'
 fi
 
-# Function to ensure essential directories are prioritized in PATH 
-# without breaking anything if something goes wrong
-ensure_safe_path() {
-    # Essential directories that should be at the front of PATH
-    local linux_essential_dirs=(
-        "$HOME/.local/bin"
-        "$HOME/bin"
-        "/usr/local/sbin"
-        "/usr/local/bin" 
-        "/usr/sbin"
-        "/usr/bin"
-        "/sbin"
-        "/bin"
-    )
-    
-    # Essential Windows directories we want to keep
-    local win_essential_dirs=(
-        "/mnt/c/Windows/system32"
-        "/mnt/c/Windows"
-        "/mnt/c/Windows/System32/WindowsPowerShell/v1.0"
-    )
-    
-    # Paths we want to filter out (Node.js conflicts)
-    local filtered_patterns=(
-        "/mnt/c/Program Files/nodejs"
-        "/mnt/c/Users/*/AppData/Roaming/npm"
-        "/mnt/c/Program Files (x86)/Microsoft SDKs/TypeScript"
-    )
-    
-    # Build new PATH with Linux essentials first
-    local new_path=""
-    for dir in "${linux_essential_dirs[@]}"; do
-        if [[ -d "$dir" ]]; then
-            new_path="$new_path:$dir"
-        fi
-    done
-    
-    # Get existing PATH and process it
-    local orig_ifs="$IFS"
-    IFS=":"
-    local existing_paths=($PATH)
-    IFS="$orig_ifs"
-    
-    # Add remaining paths that aren't in the filtered list
-    for p in "${existing_paths[@]}"; do
-        # Skip empty paths
-        if [[ -z "$p" ]]; then continue; fi
-        
-        # Skip if already in our new path
-        if [[ "$new_path" == *":$p:"* || "$new_path" == *":$p" ]]; then
-            continue
-        fi
-        
-        # Skip filtered paths
-        local skip=false
-        for pattern in "${filtered_patterns[@]}"; do
-            if [[ "$p" == *"$pattern"* ]]; then
-                skip=true
-                break
-            fi
-        done
-        
-        if [[ "$skip" == "false" ]]; then
-            new_path="$new_path:$p"
-        fi
-    done
-    
-    # Add essential Windows paths
-    for dir in "${win_essential_dirs[@]}"; do
-        if [[ -d "$dir" && "$new_path" != *"$dir"* ]]; then
-            new_path="$new_path:$dir"
-        fi
-    done
-    
-    # Remove leading colon
-    new_path="${new_path#:}"
-    
-    # Set new PATH only if it looks valid (contains /usr/bin)
-    if [[ "$new_path" == *"/usr/bin"* ]]; then
-        export PATH="$new_path"
-    else
-        # Fallback to a safe minimal PATH if something went wrong
-        export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin:/usr/games:/mnt/c/Windows/system32:/mnt/c/Windows"
-        echo "WARNING: Path filtering failed, using safe default PATH"
-    fi
-}
-
-# Apply path filtering safely
-ensure_safe_path
-
-# Add NVM to PATH if available
-if [ -d "$HOME/.nvm" ]; then
-    export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+if [ -f /usr/bin/python3 ]; then
+    alias python3='/usr/bin/python3'
 fi
 
-# Create shortcut to VS Code wrapper if it exists
+# VS Code integration - ensure 'code' command works
 if [ -f "$HOME/bin/code-wrapper.sh" ]; then
     alias code="$HOME/bin/code-wrapper.sh"
 fi
 
-# This section makes sure we have a working prompt if it gets corrupted
-fix_my_prompt() {
-    # Set a simple but functional bash prompt
-    PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-    export PS1
-}
-
-# If the prompt appears to be broken, this can be run to fix it
-alias fix-prompt=fix_my_prompt
+# NOTE: We don't use chcp.com or any terminal controls that might break the display
 EOFPATHFILTER
-        check_error "Failed to add safe PATH filter to .bashrc"
-    fi
-    
-    # Install the same path filter for zsh
-    if [ -f ~/.zshrc ]; then
-        print_step "Adding path filter to .zshrc..."
-        if ! grep -q "WSL-DEV-SETUP PATH FILTER" ~/.zshrc; then
-            cat >> ~/.zshrc << 'EOFZSH'
 
-# Source bashrc PATH filter if it exists
-if [ -f ~/.bashrc ]; then
-    # Extract the PATH filter section from .bashrc and source it
-    grep -A 100 "WSL-DEV-SETUP PATH FILTER" ~/.bashrc > /tmp/path_filter.sh
-    source /tmp/path_filter.sh
-    rm /tmp/path_filter.sh
-fi
-EOFZSH
-            check_error "Failed to add path filter to .zshrc"
-        fi
-    fi
+    # Replace the old .bashrc with the new content
+    mv "$TMP_RC" ~/.bashrc
+    chmod 644 ~/.bashrc
     
     print_success "Safe PATH filtering configured"
 }
@@ -2375,9 +2282,15 @@ safer_path_filter
 # Final setup and display completion message
 display_completion_message
 
-# Run the update script automatically
-echo -e "\n${BLUE}Running update script to finalize setup...${NC}"
-cd "$SETUP_DIR" || { echo -e "${RED}Failed to change directory to $SETUP_DIR${NC}"; exit 1; }
-bash ./update.sh
+# Don't automatically run the update script as it might cause issues
+echo -e "\n${GREEN}Setup complete! To apply changes, please run:${NC}"
+echo -e "${YELLOW}source ~/.bashrc${NC}"
+echo -e "${GREEN}or restart your terminal${NC}"
+
+echo -e "\n${BLUE}To complete setup, run:${NC}"
+echo -e "${YELLOW}cd $SETUP_DIR && ./update.sh${NC}"
 
 echo -e "\n${GREEN}Installation is complete! You can safely close and reopen your terminal.${NC}"
+
+# Exit successfully
+exit 0
