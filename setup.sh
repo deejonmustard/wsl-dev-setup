@@ -120,7 +120,7 @@ install_core_deps() {
     print_step "Installing essential packages..."
     
     sudo apt install -y curl wget git python3 python3-pip python3-venv unzip \
-        build-essential file cmake ripgrep fd-find fzf tmux zsh neofetch ansible \
+        build-essential file cmake ripgrep fd-find fzf tmux zsh ansible \
         jq bat htop
     
     if [ $? -ne 0 ]; then
@@ -277,9 +277,36 @@ setup_nvim_config() {
             ensure_dir ~/.config/nvim || return 1
         fi
         
-        # Clone kickstart.nvim
-        print_step "Installing Kickstart Neovim..."
-        git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
+        # Ask if user has their own fork
+        echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
+        read -r has_fork
+        
+        if [[ "$has_fork" =~ ^[Yy]$ ]]; then
+            # Ask for GitHub username
+            echo -e "${BLUE}Please enter your GitHub username:${NC}"
+            read -r github_username
+            
+            if [ -z "$github_username" ]; then
+                print_warning "No username provided, falling back to default repository"
+                git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
+            else
+                # Clone from user's fork
+                print_step "Cloning from your fork at https://github.com/$github_username/kickstart.nvim.git"
+                git clone --depth=1 "https://github.com/$github_username/kickstart.nvim.git" ~/.config/nvim
+                
+                # Modify .gitignore to track lazy-lock.json as recommended
+                if [ -f ~/.config/nvim/.gitignore ]; then
+                    print_step "Modifying .gitignore to track lazy-lock.json..."
+                    sed -i '/lazy-lock.json/d' ~/.config/nvim/.gitignore
+                    print_success "Modified .gitignore to track lazy-lock.json"
+                fi
+            fi
+        else
+            # Clone default kickstart.nvim
+            print_step "Installing Kickstart Neovim from official repository..."
+            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
+        fi
+        
         if [ $? -ne 0 ]; then
             print_error "Failed to clone Kickstart Neovim"
             print_warning "Make sure git is installed and you have internet connectivity"
@@ -406,7 +433,7 @@ export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
 # Run neofetch at startup for system info
 if [ -f "/usr/bin/neofetch" ]; then
-  /usr/bin/neofetch
+  /usr/bin/neofetch --backend ascii --disable disk --disk_show '/' --cpu_speed on --cpu_cores logical
 fi
 
 # Aliases - focused on productivity
@@ -854,6 +881,11 @@ display_completion_message() {
     
     echo -e "\n${BLUE}To update your environment in the future:${NC}"
     echo -e "- Run ${YELLOW}~/dev-env/update.sh${NC}"
+    
+    echo -e "\n${BLUE}Neovim Kickstart Tips:${NC}"
+    echo -e "- If you didn't use your own fork, consider forking kickstart.nvim on GitHub:"
+    echo -e "  ${YELLOW}https://github.com/nvim-lua/kickstart.nvim/fork${NC}"
+    echo -e "- Customize your Neovim setup in ${YELLOW}~/.config/nvim/lua/custom/${NC}"
     
     echo -e "\n${PURPLE}Happy coding!${NC}"
 }

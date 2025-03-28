@@ -1,6 +1,7 @@
 # VS Code settings
 .vscode/
 !.vscode/extensions.json
+settings.json
 
 # Editor backups and temporary files
 *~

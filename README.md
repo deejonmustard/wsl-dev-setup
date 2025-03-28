@@ -15,7 +15,7 @@ A simple script to set up a beginner-friendly development environment for WSL De
 
 ## Quick Install
 
-For a fresh Debian WSL installation, run:
+From a fresh Debian WSL installation, run:
 
 ```bash
 # Update system and install curl first
@@ -36,6 +36,16 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 - **Claude Code**: AI assistant for coding
 - **WSL Utilities**: Helper scripts for Windows integration
 
+## Neovim Setup
+
+The setup script uses [kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) as the base Neovim configuration. During installation you'll be asked if you have a fork of kickstart.nvim:
+
+- If you do: provide your GitHub username to clone your fork
+- If not: the script will use the official repository
+
+It's recommended to fork kickstart.nvim to your own GitHub account for easier customization:
+1. Visit https://github.com/nvim-lua/kickstart.nvim and click "Fork"
+2. Clone your fork during setup by answering "yes" when prompted
 
 ## Updates
 
