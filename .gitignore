@@ -1,7 +1,7 @@
 # VS Code settings
-.vscode/
+.vscode/*
 !.vscode/extensions.json
-settings.json
+# settings.json is intentionally ignored as it contains user-specific settings
 
 # Editor backups and temporary files
 *~

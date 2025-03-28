@@ -152,16 +152,27 @@ install_core_deps() {
 # Install Neofetch for system information display
 install_neofetch() {
     print_header "Installing Neofetch"
-    if ! command_exists neofetch; then
+    if ! command_exists neofetch || ! [ -f "/usr/bin/neofetch" ]; then
         print_step "Installing Neofetch..."
         sudo apt install -y neofetch
         if [ $? -ne 0 ]; then
             print_error "Failed to install Neofetch"
             return 1
         fi
+        
+        # Create an alias to ensure Linux version is used
+        if ! grep -q "alias neofetch='/usr/bin/neofetch'" ~/.bashrc; then
+            echo "alias neofetch='/usr/bin/neofetch'" >> ~/.bashrc
+        fi
+        
         print_success "Neofetch installed successfully"
     else
         print_step "Neofetch is already installed"
+        
+        # Ensure the alias exists
+        if ! grep -q "alias neofetch='/usr/bin/neofetch'" ~/.bashrc; then
+            echo "alias neofetch='/usr/bin/neofetch'" >> ~/.bashrc
+        fi
     fi
     return 0
 }
@@ -466,6 +477,11 @@ fi
 
 if [ -f /usr/bin/python3 ]; then
     alias python3='/usr/bin/python3'
+fi
+
+# Make sure we always use Linux version of neofetch
+if [ -f /usr/bin/neofetch ]; then
+    alias neofetch='/usr/bin/neofetch'
 fi
 
 # Set npm to use Linux mode if available
