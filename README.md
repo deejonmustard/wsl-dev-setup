@@ -14,6 +14,7 @@ A simple script to set up a beginner-friendly development environment for WSL De
 - Claude Code AI assistant
 - Core development tools and utilities
 - **Seamless GitHub integration** via GitHub CLI
+- **Organized directory structure** with all configuration in ~/dev-env
 
 ## Quick Install
 
@@ -84,7 +85,11 @@ It's recommended to fork kickstart.nvim to your own GitHub account for easier cu
 
 ## Dotfile Management with Chezmoi
 
-Chezmoi is installed to help you manage your configuration files (dotfiles) across both Windows and WSL. This ensures your development environment remains consistent:
+Chezmoi is installed to help you manage your configuration files (dotfiles) across both Windows and WSL. This ensures your development environment remains consistent.
+
+### Organized Directory Structure
+
+This setup uses a custom source directory for Chezmoi at `~/dev-env/dotfiles` instead of the default location. This keeps all your important configuration in one organized place.
 
 ### Basic Usage
 
@@ -166,14 +171,12 @@ Since both systems point to the same GitHub repository, you can keep them in syn
 
 ```powershell
 # In Windows PowerShell
-chezmoi git pull
-chezmoi apply
+chezmoi update
 ```
 
 ```bash
 # In WSL
-chezmoi git pull
-chezmoi apply
+chezmoi update
 ```
 
 This way, any changes you make to your configuration in either environment will be available in both!

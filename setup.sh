@@ -18,6 +18,7 @@ CYAN='\033[0;36m'    # Section headers
 SCRIPT_VERSION="0.3.2"
 NVIM_VERSION="0.10.0"
 SETUP_DIR="$HOME/dev-env"
+CHEZMOI_SOURCE_DIR="$HOME/dev-env/dotfiles"
 GITHUB_USERNAME=""
 GITHUB_TOKEN=""
 USE_GITHUB=false
@@ -409,14 +410,15 @@ setup_chezmoi() {
     
     # Create directory for chezmoi documentation
     ensure_dir "$SETUP_DIR/docs/chezmoi" || return 1
+    ensure_dir "$CHEZMOI_SOURCE_DIR" || return 1
     
     # Create a basic chezmoi configuration
     print_step "Creating basic Chezmoi configuration..."
     
     # Initialize chezmoi with empty repo if user doesn't already have a dotfiles repo
-    if [ ! -d "$HOME/.local/share/chezmoi" ]; then
-        print_step "Initializing Chezmoi with empty repository..."
-        chezmoi init
+    if [ ! -d "$CHEZMOI_SOURCE_DIR" ] || [ -z "$(ls -A "$CHEZMOI_SOURCE_DIR")" ]; then
+        print_step "Initializing Chezmoi with empty repository in $CHEZMOI_SOURCE_DIR..."
+        chezmoi init --source="$CHEZMOI_SOURCE_DIR"
         if [ $? -ne 0 ]; then
             print_error "Failed to initialize Chezmoi"
             return 1
@@ -435,10 +437,10 @@ setup_chezmoi() {
                 # Check if it's just a username or a full URL
                 if [[ "$dotfiles_repo" != *"/"* && "$dotfiles_repo" != "http"* ]]; then
                     print_step "Using GitHub repository: https://github.com/$dotfiles_repo/dotfiles.git"
-                    chezmoi init "https://github.com/$dotfiles_repo/dotfiles.git"
+                    chezmoi init --source="$CHEZMOI_SOURCE_DIR" "https://github.com/$dotfiles_repo/dotfiles.git"
                 else
                     print_step "Using repository: $dotfiles_repo"
-                    chezmoi init "$dotfiles_repo"
+                    chezmoi init --source="$CHEZMOI_SOURCE_DIR" "$dotfiles_repo"
                 fi
                 
                 # Apply dotfiles with special flag to keep local changes by default
@@ -452,8 +454,8 @@ setup_chezmoi() {
     fi
     
     # Create a simple README in the chezmoi source directory if it doesn't exist
-    if [ ! -f "$HOME/.local/share/chezmoi/README.md" ]; then
-        cat > "$HOME/.local/share/chezmoi/README.md" << 'EOL'
+    if [ ! -f "$CHEZMOI_SOURCE_DIR/README.md" ]; then
+        cat > "$CHEZMOI_SOURCE_DIR/README.md" << 'EOL'
 # My Dotfiles
 
 This directory contains my dotfiles managed by [chezmoi](https://www.chezmoi.io).
@@ -474,7 +476,7 @@ For more information, see the [chezmoi documentation](https://www.chezmoi.io/use
 EOL
     fi
     
-    print_success "Chezmoi setup completed"
+    print_success "Chezmoi setup completed with custom source directory: $CHEZMOI_SOURCE_DIR"
     return 0
 }
 
@@ -1100,6 +1102,12 @@ Chezmoi is a powerful dotfile manager that helps you keep your configuration fil
 * `chezmoi update` - Pull the latest changes from your dotfiles repo and apply them
 * `chezmoi diff` - See what changes chezmoi would make to your home directory
 
+### Custom Source Directory
+
+This setup uses a custom source directory for Chezmoi at `~/dev-env/dotfiles` instead of the default `~/.local/share/chezmoi`. This keeps all your important configuration in a single organized location.
+
+When running chezmoi commands, the `--source` flag is automatically used based on your configuration.
+
 ### Managing Your Configuration Between Windows and WSL
 
 Chezmoi is perfect for maintaining consistency between your Windows environment and WSL:
@@ -1107,10 +1115,10 @@ Chezmoi is perfect for maintaining consistency between your Windows environment 
 1. **Initial Setup**:
    ```bash
    # Initialize chezmoi with your existing dotfiles repository
-   chezmoi init https://github.com/yourusername/dotfiles.git
+   chezmoi init --source=~/dev-env/dotfiles https://github.com/yourusername/dotfiles.git
    
    # Or initialize with a new empty repository
-   chezmoi init
+   chezmoi init --source=~/dev-env/dotfiles
    ```
 
 2. **Adding Files**:
@@ -1281,7 +1289,7 @@ chezmoi add ~/.wslconfig
 sh -c "$(curl -fsLS get.chezmoi.io)"
 
 # Initialize with your dotfiles repo
-chezmoi init https://github.com/yourusername/dotfiles.git
+chezmoi init --source=~/dev-env/dotfiles https://github.com/yourusername/dotfiles.git
 
 # See what changes would be made
 chezmoi diff
@@ -1340,6 +1348,9 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 
+# Define the chezmoi source directory
+CHEZMOI_SOURCE_DIR="$HOME/dev-env/dotfiles"
+
 echo -e "${BLUE}Updating System Packages...${NC}"
 sudo apt update && sudo apt upgrade -y
 
@@ -1359,7 +1370,7 @@ fi
 # Update dotfiles with chezmoi if it's installed
 if command -v chezmoi >/dev/null 2>&1; then
   echo -e "${BLUE}Updating dotfiles with Chezmoi...${NC}"
-  chezmoi update
+  chezmoi update --source="$CHEZMOI_SOURCE_DIR"
   echo -e "${GREEN}Dotfiles updated${NC}"
 fi
 
@@ -1402,7 +1413,7 @@ setup_dotfiles_repo() {
     fi
     
     # Check if we already have a dotfiles repository
-    if [ -d "$HOME/.local/share/chezmoi/.git" ]; then
+    if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
         print_step "Dotfiles repository already initialized"
         
         # If GitHub CLI is available, offer to connect to GitHub
@@ -1411,7 +1422,7 @@ setup_dotfiles_repo() {
             read -r setup_remote
             
             if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
-                cd "$HOME/.local/share/chezmoi" || return 1
+                cd "$CHEZMOI_SOURCE_DIR" || return 1
                 
                 # Ask if repository should be public
                 echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
@@ -1429,7 +1440,7 @@ setup_dotfiles_repo() {
                 git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
                 if [ $? -ne 0 ]; then
                     print_warning "Failed to push to GitHub. You can try again later with:"
-                    print_warning "cd ~/.local/share/chezmoi && git push -u origin main"
+                    print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
                 else
                     print_success "Dotfiles pushed to GitHub successfully"
                 fi
@@ -1450,7 +1461,7 @@ setup_dotfiles_repo() {
                     fi
                     
                     print_step "Setting up remote origin to $repo_url"
-                    cd "$HOME/.local/share/chezmoi" || return 1
+                    cd "$CHEZMOI_SOURCE_DIR" || return 1
                     
                     # Check if remote already exists
                     if git remote | grep -q "origin"; then
@@ -1466,7 +1477,7 @@ setup_dotfiles_repo() {
                     git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
                     if [ $? -ne 0 ]; then
                         print_warning "Failed to push to remote. The repository may not exist or you don't have permissions."
-                        print_step "To push later, run: cd ~/.local/share/chezmoi && git push -u origin main"
+                        print_step "To push later, run: cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
                     else
                         print_success "Dotfiles pushed to remote repository"
                     fi
@@ -1477,7 +1488,7 @@ setup_dotfiles_repo() {
         print_step "Initializing dotfiles repository"
         
         # Initialize git in chezmoi source directory
-        cd "$HOME/.local/share/chezmoi" || return 1
+        cd "$CHEZMOI_SOURCE_DIR" || return 1
         git init
         
         # Create initial commit with all files
@@ -1506,7 +1517,7 @@ setup_dotfiles_repo() {
                 git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
                 if [ $? -ne 0 ]; then
                     print_warning "Failed to push to GitHub. You can try again later with:"
-                    print_warning "cd ~/.local/share/chezmoi && git push -u origin main"
+                    print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
                 else 
                     print_success "Successfully pushed dotfiles to GitHub"
                 fi
@@ -1528,7 +1539,7 @@ setup_dotfiles_repo() {
                     
                     print_step "To push your dotfiles to GitHub:"
                     print_warning "1. Create a repository named 'dotfiles' on GitHub"
-                    print_warning "2. Run: cd ~/.local/share/chezmoi && git push -u origin main"
+                    print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
                 fi
             fi
         fi
@@ -1731,6 +1742,7 @@ display_completion_message() {
     echo -e "- Customize your Neovim setup in ${YELLOW}~/.config/nvim/lua/custom/${NC}"
     
     echo -e "\n${BLUE}Chezmoi Tips:${NC}"
+    echo -e "- Your dotfiles are managed in: ${YELLOW}~/dev-env/dotfiles${NC}"
     echo -e "- Add configuration files: ${YELLOW}chezmoi add ~/.zshrc ~/.gitconfig${NC}"
     echo -e "- Edit existing dotfiles: ${YELLOW}chezmoi edit ~/.zshrc${NC}"
     echo -e "- See pending changes: ${YELLOW}chezmoi diff${NC}"
@@ -1738,9 +1750,9 @@ display_completion_message() {
     echo -e "- Check documentation: ${YELLOW}cat ~/dev-env/docs/chezmoi-guide.md${NC}"
     echo -e "\n${BLUE}Syncing Between Windows and WSL:${NC}"
     echo -e "- Create a GitHub repo for your dotfiles"
-    echo -e "- Run: ${YELLOW}chezmoi git remote add origin https://github.com/yourusername/dotfiles.git${NC}"
+    echo -e "- Run: ${YELLOW}cd ~/dev-env/dotfiles && git remote add origin https://github.com/yourusername/dotfiles.git${NC}"
     echo -e "- Push changes: ${YELLOW}chezmoi git push -u origin main${NC}"
-    echo -e "- On another machine: ${YELLOW}chezmoi init https://github.com/yourusername/dotfiles.git${NC}"
+    echo -e "- On another machine: ${YELLOW}chezmoi init --source=~/dev-env/dotfiles https://github.com/yourusername/dotfiles.git${NC}"
     
     echo -e "\n${PURPLE}Happy coding!${NC}"
 }
@@ -2406,7 +2418,7 @@ GitHub CLI works great with Chezmoi for managing dotfiles:
 
 1. Create a dotfiles repository:
    ```bash
-   cd ~/.local/share/chezmoi
+   cd ~/dev-env/dotfiles
    gh repo create dotfiles --private
    ```
 
@@ -2419,9 +2431,11 @@ GitHub CLI works great with Chezmoi for managing dotfiles:
 
 3. Pull your dotfiles on another machine:
    ```bash
-   gh repo clone your-username
+   # Clone directly
+   gh repo clone your-username/dotfiles
+   
    # Or with chezmoi
-   chezmoi init your-username
+   chezmoi init --source=~/dev-env/dotfiles your-username
    ```
 
 ## Custom Aliases
