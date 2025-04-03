@@ -1239,10 +1239,118 @@ ENDOFFILE
     return 0
 }
 
+# Setup dotfiles repository for chezmoi
+setup_dotfiles_repo() {
+    print_header "Setting up dotfiles repository"
+    
+    # Check if chezmoi is available
+    if ! command_exists chezmoi; then
+        print_error "Chezmoi is not installed. Run setup_chezmoi first."
+        return 1
+    fi
+    
+    # Check if git is available
+    if ! command_exists git; then
+        print_warning "Git is not installed. Installing Git..."
+        sudo apt install -y git
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Git"
+            return 1
+        fi
+    fi
+    
+    # Check if we already have a dotfiles repository
+    if [ -d "$HOME/.local/share/chezmoi/.git" ]; then
+        print_step "Dotfiles repository already initialized"
+        
+        # Ask if user wants to connect to a remote repository
+        echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n)${NC}"
+        read -r setup_remote
+        
+        if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Enter your GitHub username (or full repository URL):${NC}"
+            read -r repo_url
+            
+            if [ -n "$repo_url" ]; then
+                # Check if it's just a username or a full URL
+                if [[ "$repo_url" != *"/"* && "$repo_url" != "http"* ]]; then
+                    repo_url="https://github.com/$repo_url/dotfiles.git"
+                fi
+                
+                print_step "Setting up remote origin to $repo_url"
+                cd "$HOME/.local/share/chezmoi" || return 1
+                
+                # Check if remote already exists
+                if git remote | grep -q "origin"; then
+                    print_step "Remote 'origin' already exists, updating URL..."
+                    git remote set-url origin "$repo_url"
+                else
+                    git remote add origin "$repo_url"
+                fi
+                
+                print_step "Pushing dotfiles to remote repository..."
+                print_warning "This will fail if the repository doesn't exist. Create it on GitHub first if needed."
+                
+                git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
+                if [ $? -ne 0 ]; then
+                    print_warning "Failed to push to remote. The repository may not exist or you don't have permissions."
+                    print_step "To push later, run: cd ~/.local/share/chezmoi && git push -u origin main"
+                else
+                    print_success "Dotfiles pushed to remote repository"
+                fi
+            fi
+        fi
+    else
+        print_step "Initializing dotfiles repository"
+        
+        # Initialize git in chezmoi source directory
+        cd "$HOME/.local/share/chezmoi" || return 1
+        git init
+        
+        # Create initial commit with all files
+        git add .
+        git commit -m "Initial dotfiles commit"
+        
+        # Ask user if they want to push to GitHub
+        echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n)${NC}"
+        read -r push_to_github
+        
+        if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Enter your GitHub username:${NC}"
+            read -r github_username
+            
+            if [ -n "$github_username" ]; then
+                repo_url="https://github.com/$github_username/dotfiles.git"
+                
+                print_step "Setting up remote origin to $repo_url"
+                git remote add origin "$repo_url"
+                
+                print_step "To push your dotfiles to GitHub:"
+                print_warning "1. Create a repository named 'dotfiles' on GitHub"
+                print_warning "2. Run: cd ~/.local/share/chezmoi && git push -u origin main"
+            fi
+        fi
+    fi
+    
+    print_success "Dotfiles repository setup completed"
+    return 0
+}
+
 # Setup bash helper for users who prefer bash
 setup_bashrc_helper() {
     print_header "Setting up Bash quick reference with Chezmoi"
     print_step "Adding quick reference to .bashrc..."
+    
+    # Check if .bashrc exists
+    if [ ! -f "$HOME/.bashrc" ]; then
+        print_warning "No .bashrc file found. Creating a basic one..."
+        touch "$HOME/.bashrc"
+    fi
+    
+    # First, make a backup of current .bashrc
+    BASHRC_BACKUP="$HOME/.bashrc.backup.$(date +%Y%m%d%H%M%S)"
+    cp "$HOME/.bashrc" "$BASHRC_BACKUP"
+    print_step "Backed up existing .bashrc to $BASHRC_BACKUP"
     
     # Create a temp file with the quick reference content
     QUICK_REF=$(mktemp)
@@ -1264,46 +1372,60 @@ if [ -f "/usr/bin/neofetch" ]; then
 fi
 EOL
     
-    # First, check if chezmoi is managing .bashrc
-    if ! chezmoi managed ~/.bashrc &>/dev/null; then
-        print_step "Adding existing .bashrc to chezmoi..."
-        # Add the current .bashrc to chezmoi
-        chezmoi add ~/.bashrc
-        if [ $? -ne 0 ]; then
-            print_error "Failed to add .bashrc to chezmoi"
-            rm -f "$QUICK_REF"
-            return 1
-        fi
+    # Check if neofetch alias exists, add if not
+    if ! grep -q "alias neofetch='/usr/bin/neofetch'" "$HOME/.bashrc"; then
+        print_step "Adding neofetch alias to .bashrc..."
+        echo "alias neofetch='/usr/bin/neofetch'" >> "$HOME/.bashrc"
     fi
     
-    # Now edit the managed file using chezmoi
-    print_step "Updating .bashrc with chezmoi..."
-    
-    # Check if neofetch alias exists
-    if grep -q "alias neofetch='/usr/bin/neofetch'" ~/.bashrc; then
-        # Check if quick reference already exists
-        if ! grep -q "WSL Dev Environment - Quick Reference" ~/.bashrc; then
-            # Append our quick reference
-            cat "$QUICK_REF" >> "$HOME/.bashrc"
-            # Update chezmoi state
-            chezmoi add ~/.bashrc
-            print_success "Added quick reference to .bashrc via chezmoi"
-        else
-            print_step "Quick reference already exists in .bashrc"
-        fi
-    else
-        # If neofetch alias is missing, add it first
-        print_step "Adding neofetch alias to .bashrc..."
-        echo "alias neofetch='/usr/bin/neofetch'" >> ~/.bashrc
+    # Check if quick reference already exists, add if not
+    if ! grep -q "WSL Dev Environment - Quick Reference" "$HOME/.bashrc"; then
+        print_step "Adding quick reference to .bashrc..."
         cat "$QUICK_REF" >> "$HOME/.bashrc"
-        # Update chezmoi state
+    else
+        print_step "Quick reference already exists in .bashrc"
+    fi
+    
+    # Important: Add .bashrc to chezmoi AFTER all modifications
+    print_step "Adding .bashrc to chezmoi..."
+    if chezmoi managed ~/.bashrc &>/dev/null; then
+        # Already managed by chezmoi, update it
+        print_step "Updating .bashrc in chezmoi..."
+        chezmoi add ~/.bashrc --force
+    else
+        # First time adding to chezmoi
         chezmoi add ~/.bashrc
-        print_success "Added neofetch alias and quick reference to .bashrc via chezmoi"
+    fi
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to add .bashrc to chezmoi"
+        print_warning "Restoring backup of .bashrc..."
+        cp "$BASHRC_BACKUP" "$HOME/.bashrc"
+        rm -f "$QUICK_REF"
+        return 1
+    fi
+    
+    # Verify that NVM configuration is preserved
+    if grep -q "export NVM_DIR=\"\$HOME/.nvm\"" "$HOME/.bashrc"; then
+        print_success "NVM configuration preserved in .bashrc"
+    else
+        # If NVM config is missing, check if it was in the backup and restore it
+        if grep -q "export NVM_DIR=\"\$HOME/.nvm\"" "$BASHRC_BACKUP"; then
+            print_warning "NVM configuration was missing, restoring it..."
+            # Extract NVM config from backup and append to current .bashrc
+            grep -A 3 "export NVM_DIR" "$BASHRC_BACKUP" >> "$HOME/.bashrc"
+            # Update chezmoi again
+            chezmoi add ~/.bashrc --force
+            print_success "NVM configuration restored and added to chezmoi"
+        else
+            print_warning "No NVM configuration found in .bashrc"
+        fi
     fi
     
     # Cleanup
     rm -f "$QUICK_REF"
     
+    print_success ".bashrc setup completed and managed by chezmoi"
     return 0
 }
 
@@ -1454,6 +1576,7 @@ setup_claude_code || exit 1
 create_claude_code_docs || exit 1
 create_chezmoi_docs || exit 1
 create_update_script || exit 1
+setup_dotfiles_repo || exit 1
 
 # Final setup and display completion message
 display_completion_message
