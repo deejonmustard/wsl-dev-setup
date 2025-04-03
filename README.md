@@ -31,7 +31,7 @@ wsl -l -v
 wsl.exe --install -d Debian
 
 # Launch Debian:
- 
+
 wsl.exe -d Debian
 
 ```
