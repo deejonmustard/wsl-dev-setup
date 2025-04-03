@@ -1760,10 +1760,12 @@ setup_github_info() {
         
         # Check if wslu is already installed
         if ! command_exists wslview; then
-            print_step "Adding Microsoft repository for WSL utilities..."
+            print_step "Installing required packages for repository setup..."
             
-            # Install lsb-release if needed
-            sudo apt install -y lsb-release
+            # Install required packages first
+            sudo apt install -y lsb-release gnupg curl
+            
+            print_step "Adding Microsoft repository for WSL utilities..."
             
             # Import Microsoft GPG key
             curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg
@@ -1789,6 +1791,13 @@ setup_github_info() {
         # Check if GitHub CLI is installed
         if ! command_exists gh; then
             print_step "Installing GitHub CLI..."
+            
+            # Make sure we have gnupg for key imports
+            if ! command_exists gpg; then
+                print_step "Installing gnupg for GitHub CLI repository..."
+                sudo apt install -y gnupg
+            fi
+            
             # First add the GitHub CLI repository
             curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
