@@ -1792,7 +1792,7 @@ setup_github_info() {
             echo -e "${BLUE}and enter the code that will be displayed.${NC}\n"
             
             # Force device code flow authentication since browser auth won't work
-            gh auth login --hostname github.com --web
+            gh auth login --hostname github.com --web --web-browser=none
             
             if [ $? -ne 0 ]; then
                 print_error "Failed to authenticate with GitHub"
