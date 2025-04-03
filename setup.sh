@@ -1762,6 +1762,15 @@ setup_github_info() {
     if [[ "$use_github_response" =~ ^[Yy]$ ]]; then
         USE_GITHUB=true
         
+        # Install wslu for browser integration
+        print_step "Installing WSL utilities (wslu) for browser integration..."
+        sudo apt install -y wslu
+        if [ $? -eq 0 ] && command_exists wslview; then
+            print_success "WSL utilities installed successfully - Windows browser integration enabled"
+        else
+            print_warning "wslu installation may have failed - GitHub browser authentication might require manual steps"
+        fi
+        
         # Check if GitHub CLI is installed
         if ! command_exists gh; then
             print_step "Installing GitHub CLI..."
@@ -1782,6 +1791,12 @@ setup_github_info() {
         if ! gh auth status &>/dev/null; then
             print_step "You need to authenticate with GitHub CLI..."
             echo -e "${YELLOW}Please follow the prompts to authenticate with GitHub...${NC}"
+            
+            # Provide instructions for manual authentication if needed
+            echo -e "${BLUE}If browser authentication fails, you can manually visit:${NC}"
+            echo -e "${CYAN}https://github.com/login/device${NC}"
+            echo -e "${BLUE}and enter the code that will be displayed.${NC}\n"
+            
             gh auth login
             
             if [ $? -ne 0 ]; then
