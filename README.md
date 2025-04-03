@@ -33,6 +33,7 @@ wsl.exe --install -d Debian
 # Launch Debian:
  
 wsl.exe -d Debian
+
 ```
 
 From a fresh Debian WSL installation, run:
