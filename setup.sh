@@ -1759,34 +1759,9 @@ setup_github_info() {
         print_step "Installing required dependencies first..."
         sudo apt install -y gnupg curl wget ca-certificates lsb-release
         
-        # Install wslu for browser integration
-        print_step "Installing WSL utilities (wslu) for browser integration..."
-        
-        # Check if wslu is already installed
-        if ! command_exists wslview; then
-            print_step "Adding Microsoft repository for WSL utilities..."
-            
-            # Import Microsoft GPG key using wget instead of curl
-            print_step "Importing Microsoft GPG key..."
-            wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /usr/share/keyrings/microsoft-archive-keyring.gpg > /dev/null
-            
-            # Add the repository
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/microsoft-debian-$(lsb_release -cs)-prod $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/microsoft.list > /dev/null
-            
-            # Update package lists
-            sudo apt update
-            
-            # Install wslu
-            sudo apt install -y wslu
-            
-            if [ $? -eq 0 ] && command_exists wslview; then
-                print_success "WSL utilities installed successfully - Windows browser integration enabled"
-            else
-                print_warning "wslu installation failed - GitHub browser authentication will require manual steps"
-            fi
-        else
-            print_success "WSL utilities already installed - Windows browser integration enabled"
-        fi
+        # Skip wslu installation as it's not critical and might not be available for Debian 12
+        print_step "Note: WSL browser integration might not be available in Debian 12"
+        print_warning "GitHub authentication will use device code flow instead of browser"
         
         # Check if GitHub CLI is installed
         if ! command_exists gh; then
@@ -1811,12 +1786,13 @@ setup_github_info() {
             print_step "You need to authenticate with GitHub CLI..."
             echo -e "${YELLOW}Please follow the prompts to authenticate with GitHub...${NC}"
             
-            # Provide instructions for manual authentication if needed
-            echo -e "${BLUE}If browser authentication fails, you can manually visit:${NC}"
+            # Provide instructions for manual authentication with device code flow
+            echo -e "${BLUE}GitHub will provide a device code. Please visit:${NC}"
             echo -e "${CYAN}https://github.com/login/device${NC}"
             echo -e "${BLUE}and enter the code that will be displayed.${NC}\n"
             
-            gh auth login
+            # Force device code flow authentication since browser auth won't work
+            gh auth login --hostname github.com --web
             
             if [ $? -ne 0 ]; then
                 print_error "Failed to authenticate with GitHub"
