@@ -576,7 +576,7 @@ if [ -f "/usr/bin/neofetch" ]; then
   echo "🔄 Apply dotfile changes: chezmoi apply"
   echo "📊 Check dotfile status: chezmoi status"
   echo "💻 Editor: nvim | Multiplexer: tmux | Shell: zsh"
-  echo "📋 Docs: ~/dev-env/docs/"
+  echo "📋 Docs: ~/dev-env/docs/ (try: cat ~/dev-env/docs/quick-reference.md)"
   echo "🔨 Update environment: ~/dev-env/update.sh"
   echo ""
 fi
@@ -1176,6 +1176,102 @@ chezmoi git commit -m "Update zshrc"
 chezmoi git push
 ```
 
+## Windows and WSL Integration
+
+One of the most powerful features of Chezmoi is the ability to manage dotfiles across both Windows and WSL using the same repository.
+
+### Setting Up Chezmoi on Windows
+
+1. **Install Chezmoi on Windows**:
+   ```powershell
+   # Using winget
+   winget install twpayne.chezmoi
+   
+   # OR using Scoop
+   scoop install chezmoi
+   
+   # OR using Chocolatey
+   choco install chezmoi
+   ```
+
+2. **Initialize with the Same Repository**:
+   ```powershell
+   # Initialize Chezmoi with your GitHub repository
+   chezmoi init https://github.com/YOUR-USERNAME/dotfiles.git
+   ```
+
+3. **Apply Your Dotfiles**:
+   ```powershell
+   # Check what would change
+   chezmoi diff
+   
+   # Apply the changes
+   chezmoi apply
+   ```
+
+### Managing Windows-Specific Files
+
+Windows has different paths and configuration files compared to Linux/WSL:
+
+```powershell
+# Add PowerShell profile
+chezmoi add $PROFILE
+
+# Add Windows Terminal settings
+chezmoi add ~/AppData/Local/Packages/Microsoft.WindowsTerminal_*/LocalState/settings.json
+
+# Add other common Windows configs
+chezmoi add ~/.gitconfig
+chezmoi add ~/.wslconfig
+```
+
+### Template Examples for Cross-Platform Compatibility
+
+1. **Conditional Paths**:
+   ```
+   {{- if eq .chezmoi.os "windows" }}
+   C:\Path\to\something
+   {{- else }}
+   /path/to/something
+   {{- end }}
+   ```
+
+2. **Different Application Settings**:
+   ```
+   {{- if eq .chezmoi.os "windows" }}
+   # Windows VSCode settings
+   {{- else }}
+   # Linux VSCode settings
+   {{- end }}
+   ```
+
+3. **Detecting WSL Specifically**:
+   ```
+   {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+   # WSL-specific configuration
+   {{- end }}
+   ```
+
+### Workflow for Managing Both Environments
+
+1. **Make Changes in Either Environment**:
+   - Edit files in Windows or WSL as needed
+   - Add them to Chezmoi: `chezmoi add <file>`
+   - Commit and push: `chezmoi git commit -m "Update config" && chezmoi git push`
+
+2. **Synchronize in the Other Environment**:
+   - Pull changes: `chezmoi update`
+   - This will pull from git and apply changes in one step
+
+3. **Use a Shared Data File**:
+   Create a `.chezmoi.toml` with common settings:
+   ```toml
+   [data]
+   email = "your.email@example.com"
+   name = "Your Name"
+   editor = "nvim"  # Will be translated appropriately for each OS
+   ```
+
 ## Common Workflows
 
 ### Setting Up a New Machine
@@ -1309,49 +1405,37 @@ setup_dotfiles_repo() {
     if [ -d "$HOME/.local/share/chezmoi/.git" ]; then
         print_step "Dotfiles repository already initialized"
         
-        # If we have GitHub info, set up the remote repository
-        if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
+        # If GitHub CLI is available, offer to connect to GitHub
+        if $USE_GITHUB && command_exists gh; then
             echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n)${NC}"
             read -r setup_remote
             
             if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
-                # Use the stored GitHub username
-                repo_url="https://github.com/$GITHUB_USERNAME/dotfiles.git"
-                
-                # Create repository if token is available
-                if [ -n "$GITHUB_TOKEN" ]; then
-                    create_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
-                else
-                    print_warning "No GitHub token available. You'll need to create the repository manually."
-                    print_warning "Create a repository named 'dotfiles' on GitHub before proceeding."
-                    
-                    echo -e "\n${BLUE}Press Enter when you've created the repository...${NC}"
-                    read -r
-                fi
-                
-                print_step "Setting up remote origin to $repo_url"
                 cd "$HOME/.local/share/chezmoi" || return 1
                 
-                # Check if remote already exists
-                if git remote | grep -q "origin"; then
-                    print_step "Remote 'origin' already exists, updating URL..."
-                    git remote set-url origin "$repo_url"
-                else
-                    git remote add origin "$repo_url"
+                # Ask if repository should be public
+                echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
+                read -r repo_public
+                is_public="false"
+                if [[ "$repo_public" =~ ^[Yy]$ ]]; then
+                    is_public="true"
                 fi
                 
-                print_step "Pushing dotfiles to remote repository..."
+                # Create and connect to GitHub repository
+                create_github_repository "dotfiles" "My dotfiles managed by Chezmoi" "$is_public"
                 
+                # Try pushing to GitHub
+                print_step "Pushing dotfiles to GitHub..."
                 git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
                 if [ $? -ne 0 ]; then
-                    print_warning "Failed to push to remote. The repository may not exist or you don't have permissions."
-                    print_step "To push later, run: cd ~/.local/share/chezmoi && git push -u origin main"
+                    print_warning "Failed to push to GitHub. You can try again later with:"
+                    print_warning "cd ~/.local/share/chezmoi && git push -u origin main"
                 else
-                    print_success "Dotfiles pushed to remote repository"
+                    print_success "Dotfiles pushed to GitHub successfully"
                 fi
             fi
         else
-            # Original behavior if no GitHub info
+            # Original behavior for non-GitHub CLI workflow
             echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n)${NC}"
             read -r setup_remote
             
@@ -1400,29 +1484,24 @@ setup_dotfiles_repo() {
         git add .
         git commit -m "Initial dotfiles commit"
         
-        # If we have GitHub info, create and push to GitHub
-        if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
+        # If GitHub CLI is available, offer to create and push to GitHub
+        if $USE_GITHUB && command_exists gh; then
             echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n)${NC}"
             read -r push_to_github
             
             if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
-                # Use stored GitHub username
-                repo_url="https://github.com/$GITHUB_USERNAME/dotfiles.git"
-                
-                # Create repository if token is available
-                if [ -n "$GITHUB_TOKEN" ]; then
-                    create_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
-                else
-                    print_warning "No GitHub token available. You'll need to create the repository manually."
-                    print_warning "Create a repository named 'dotfiles' on GitHub before proceeding."
-                    
-                    echo -e "\n${BLUE}Press Enter when you've created the repository...${NC}"
-                    read -r
+                # Ask if repository should be public
+                echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
+                read -r repo_public
+                is_public="false"
+                if [[ "$repo_public" =~ ^[Yy]$ ]]; then
+                    is_public="true"
                 fi
                 
-                print_step "Setting up remote origin to $repo_url"
-                git remote add origin "$repo_url"
+                # Create and connect to GitHub repository
+                create_github_repository "dotfiles" "My dotfiles managed by Chezmoi" "$is_public"
                 
+                # Try pushing to GitHub
                 print_step "Pushing to GitHub..."
                 git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
                 if [ $? -ne 0 ]; then
@@ -1433,7 +1512,7 @@ setup_dotfiles_repo() {
                 fi
             fi
         else
-            # Original behavior if no GitHub info
+            # Original behavior for non-GitHub CLI workflow
             echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n)${NC}"
             read -r push_to_github
             
@@ -1489,7 +1568,7 @@ if [ -f "/usr/bin/neofetch" ]; then
   echo "🔄 Apply dotfile changes: chezmoi apply"
   echo "📊 Check dotfile status: chezmoi status"
   echo "💻 Editor: nvim | Multiplexer: tmux"
-  echo "📋 Docs: ~/dev-env/docs/"
+  echo "📋 Docs: ~/dev-env/docs/ (try: cat ~/dev-env/docs/quick-reference.md)"
   echo "🔨 Update environment: ~/dev-env/update.sh"
   echo ""
 fi
@@ -1676,33 +1755,42 @@ setup_github_info() {
     if [[ "$use_github_response" =~ ^[Yy]$ ]]; then
         USE_GITHUB=true
         
-        echo -e "${BLUE}Enter your GitHub username:${NC}"
-        read -r github_username_input
+        # Check if GitHub CLI is installed
+        if ! command_exists gh; then
+            print_step "Installing GitHub CLI..."
+            # First add the GitHub CLI repository
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install -y gh
+            
+            if [ $? -ne 0 ]; then
+                print_error "Failed to install GitHub CLI"
+                print_warning "You can still use GitHub, but you'll need to create repositories manually"
+                return 1
+            fi
+        fi
         
-        if [ -n "$github_username_input" ]; then
-            GITHUB_USERNAME="$github_username_input"
-            print_success "GitHub username set to: $GITHUB_USERNAME"
+        # Check if already logged in to GitHub
+        if ! gh auth status &>/dev/null; then
+            print_step "You need to authenticate with GitHub CLI..."
+            echo -e "${YELLOW}Please follow the prompts to authenticate with GitHub...${NC}"
+            gh auth login
             
-            echo -e "\n${BLUE}Do you want to create a GitHub repository for your dotfiles? (y/n)${NC}"
-            read -r create_repo_response
-            
-            if [[ "$create_repo_response" =~ ^[Yy]$ ]]; then
-                echo -e "${BLUE}A personal access token is required to create a repository.${NC}"
-                echo -e "${BLUE}You can create one at: https://github.com/settings/tokens${NC}"
-                echo -e "${BLUE}Make sure it has 'repo' permissions.${NC}"
-                echo -e "${BLUE}Enter your GitHub personal access token:${NC}"
-                read -r github_token_input
-                
-                if [ -n "$github_token_input" ]; then
-                    GITHUB_TOKEN="$github_token_input"
-                    print_success "GitHub token saved (will not be stored permanently)"
-                else
-                    print_warning "No token provided. You'll need to create the repository manually."
-                fi
+            if [ $? -ne 0 ]; then
+                print_error "Failed to authenticate with GitHub"
+                print_warning "You can still use GitHub, but you'll need to create repositories manually"
+                return 1
             fi
         else
-            print_warning "No GitHub username provided. Some GitHub features will be limited."
+            print_step "Already authenticated with GitHub CLI"
         fi
+        
+        # Get GitHub username from authenticated session
+        GITHUB_USERNAME=$(gh api user -q '.login')
+        print_success "GitHub user detected: $GITHUB_USERNAME"
+        
+        return 0
     else
         print_step "Skipping GitHub integration"
     fi
@@ -1710,35 +1798,733 @@ setup_github_info() {
     return 0
 }
 
-# Function to create GitHub repository
+# Function to create GitHub repository using GitHub CLI
 create_github_repository() {
     local repo_name="$1"
     local description="$2"
+    local is_public="$3"
     
-    if [ -z "$GITHUB_USERNAME" ] || [ -z "$GITHUB_TOKEN" ]; then
-        print_warning "GitHub username or token not provided. Cannot create repository."
+    if [ -z "$GITHUB_USERNAME" ] || ! command_exists gh; then
+        print_warning "GitHub username not available or GitHub CLI not installed. Cannot create repository."
         return 1
     fi
     
     print_step "Creating GitHub repository: $repo_name"
     
-    # Create the repository using GitHub API
-    response=$(curl -s -X POST \
-        -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github.v3+json" \
-        https://api.github.com/user/repos \
-        -d "{\"name\":\"$repo_name\",\"description\":\"$description\",\"private\":false,\"auto_init\":false}")
+    # Set visibility flag
+    local visibility_flag="--private"
+    if [ "$is_public" = "true" ]; then
+        visibility_flag="--public"
+    fi
     
-    # Check if the repository was created successfully
-    if echo "$response" | grep -q "html_url"; then
-        repo_url=$(echo "$response" | grep -o '"html_url": "[^"]*"' | head -1 | cut -d'"' -f4)
-        print_success "Repository created successfully: $repo_url"
-        return 0
-    else
-        error_message=$(echo "$response" | grep -o '"message": "[^"]*"' | head -1 | cut -d'"' -f4)
-        print_error "Failed to create repository: $error_message"
+    # Create repository using GitHub CLI
+    gh repo create "$GITHUB_USERNAME/$repo_name" $visibility_flag --description "$description" --source=. --remote=origin
+    
+    if [ $? -ne 0 ]; then
+        # Try without --source flag if it fails
+        print_warning "Repository creation with --source flag failed. Trying without source flag..."
+        gh repo create "$GITHUB_USERNAME/$repo_name" $visibility_flag --description "$description"
+        
+        if [ $? -ne 0 ]; then
+            print_error "Failed to create repository on GitHub"
+            return 1
+        else
+            # Manually set up the remote
+            print_step "Setting up git remote..."
+            git remote add origin "https://github.com/$GITHUB_USERNAME/$repo_name.git"
+        fi
+    fi
+    
+    print_success "Repository created successfully: https://github.com/$GITHUB_USERNAME/$repo_name"
+    return 0
+}
+
+# Create comprehensive documentation for installed components
+create_component_docs() {
+    print_header "Creating documentation for installed components"
+    
+    # Make sure the docs directory exists
+    ensure_dir "$SETUP_DIR/docs" || return 1
+    
+    # Create Neovim guide
+    cat > "$SETUP_DIR/docs/neovim-guide.md" << 'EOL'
+# Neovim Guide
+
+This guide covers the basics of using Neovim with the Kickstart configuration installed by the WSL development environment setup.
+
+## Configuration Location
+
+Your Neovim configuration is located at:
+- `~/.config/nvim/init.lua` - Main configuration file
+- `~/.config/nvim/lua/custom/` - Directory for your custom configurations
+
+## Key Bindings
+
+### Basic Navigation
+- `h`, `j`, `k`, `l` - Move cursor left, down, up, right
+- `w` / `b` - Jump to next/previous word
+- `gg` / `G` - Go to beginning/end of file
+- `Ctrl+u` / `Ctrl+d` - Scroll half page up/down
+- `Ctrl+o` / `Ctrl+i` - Jump back/forward in jump list
+
+### File Operations
+- `<leader>ff` - Find files
+- `<leader>fg` - Live grep (search within files)
+- `<leader>fb` - Browse buffers
+- `<leader>fh` - Search help tags
+- `<leader>fo` - Recent files
+- `<leader>/` - Search in current buffer
+
+### Buffer Navigation
+- `<leader>b]` - Next buffer
+- `<leader>b[` - Previous buffer
+- `<leader>bd` - Delete buffer
+
+### Code Navigation
+- `gd` - Go to definition
+- `gr` - Go to references
+- `K` - Show documentation
+- `<leader>ca` - Code actions
+- `<leader>rn` - Rename symbol
+
+### Window Management
+- `<Ctrl+w>s` - Split horizontally
+- `<Ctrl+w>v` - Split vertically
+- `<Ctrl+w>h/j/k/l` - Navigate splits
+- `<Ctrl+w>q` - Close split
+
+### Code Editing
+- `gcc` - Comment line
+- `gc` - Comment selection (visual mode)
+- `Tab` / `Shift+Tab` - Indent/Outdent in visual mode
+- `=` - Format selection
+- `<leader>cf` - Format file
+
+### LSP Features
+- `<leader>cd` - Show line diagnostics
+- `[d` / `]d` - Previous/Next diagnostic
+- `<leader>cs` - Document symbols
+- `<leader>cw` - Workspace symbols
+
+## Managing with Chezmoi
+
+Your Neovim configuration is managed by Chezmoi. To make changes:
+
+1. Edit your configuration:
+   ```bash
+   chezmoi edit ~/.config/nvim/init.lua
+   # Or
+   chezmoi edit ~/.config/nvim/lua/custom/YOUR_PLUGIN.lua
+   ```
+
+2. Apply changes:
+   ```bash
+   chezmoi apply
+   ```
+
+3. Sync with GitHub:
+   ```bash
+   chezmoi git add .
+   chezmoi git commit -m "Update Neovim config"
+   chezmoi git push
+   ```
+
+## Adding Plugins
+
+1. Create a new file in the custom directory:
+   ```bash
+   nvim ~/.config/nvim/lua/custom/plugins/your_plugin.lua
+   ```
+
+2. Add your plugin specification:
+   ```lua
+   return {
+     "github-username/plugin-name",
+     config = function()
+       -- Your configuration here
+     end,
+   }
+   ```
+
+3. Add the file to Chezmoi:
+   ```bash
+   chezmoi add ~/.config/nvim/lua/custom/plugins/your_plugin.lua
+   ```
+
+## More Information
+
+For more details on Kickstart Neovim:
+- Run `:help` within Neovim
+- View the [Kickstart.nvim GitHub repository](https://github.com/nvim-lua/kickstart.nvim)
+EOL
+    
+    # Create Zsh guide
+    cat > "$SETUP_DIR/docs/zsh-guide.md" << 'EOL'
+# Zsh Guide
+
+This guide covers the basics of using Zsh with Oh My Zsh in the WSL development environment.
+
+## Configuration Location
+
+Your Zsh configuration is located at:
+- `~/.zshrc` - Main configuration file
+
+## Features Installed
+
+- **Oh My Zsh** - Framework for managing Zsh configuration
+- **Plugins**:
+  - `git` - Git shortcuts and prompt info
+  - `zsh-autosuggestions` - Command suggestions as you type
+  - `zsh-syntax-highlighting` - Syntax highlighting for commands
+  - `fzf` - Fuzzy finder integration
+  - `tmux` - Tmux integration
+
+## Useful Aliases
+
+### General
+- `c` - Clear terminal
+- `..` - Go up one directory
+- `...` - Go up two directories
+- `ll` - List files (detailed)
+- `la` - List all files
+
+### Git
+- `gs` - Git status
+- `ga` - Git add
+- `gc` - Git commit with message (`gc "your message"`)
+- `gp` - Git push
+- `gl` - Git pull
+
+### Tmux
+- `t` - Start tmux
+- `ta` - Attach to tmux session (`ta session-name`)
+- `tn` - New tmux session (`tn session-name`)
+- `tl` - List tmux sessions
+
+### Editor
+- `vim` or `v` - Open Neovim
+
+## Oh My Zsh Features
+
+### Autocompletion
+- Press `Tab` for completion
+- Navigate completion options with arrow keys
+- Accept suggestion with `→` (right arrow) or `End`
+
+### Directory Navigation
+- `cd -` - Navigate to previous directory
+- `cd -<Tab>` - See and select from directory history
+
+### History
+- `Ctrl+r` - Search command history
+- Arrow up/down - Navigate through history
+
+## Managing with Chezmoi
+
+Your Zsh configuration is managed by Chezmoi. To make changes:
+
+1. Edit your configuration:
+   ```bash
+   chezmoi edit ~/.zshrc
+   ```
+
+2. Apply changes:
+   ```bash
+   chezmoi apply
+   ```
+
+3. Sync with GitHub:
+   ```bash
+   chezmoi git add .
+   chezmoi git commit -m "Update Zsh config"
+   chezmoi git push
+   ```
+
+## Customizing
+
+### Adding new aliases
+
+Edit your `~/.zshrc` file with Chezmoi and add aliases:
+
+```bash
+chezmoi edit ~/.zshrc
+```
+
+Then add your aliases:
+```bash
+# Custom aliases
+alias myalias='command'
+```
+
+### Installing new Oh My Zsh plugins
+
+1. Edit your `~/.zshrc`:
+   ```bash
+   chezmoi edit ~/.zshrc
+   ```
+
+2. Find the plugins section and add your plugin:
+   ```bash
+   plugins=(
+     git
+     zsh-autosuggestions
+     zsh-syntax-highlighting
+     fzf
+     tmux
+     your-new-plugin
+   )
+   ```
+
+3. Apply the changes:
+   ```bash
+   chezmoi apply
+   source ~/.zshrc
+   ```
+
+## More Information
+
+For more details on Oh My Zsh:
+- [Oh My Zsh GitHub repository](https://github.com/ohmyzsh/ohmyzsh)
+- Run `omz help` for built-in help
+EOL
+    
+    # Create Tmux guide
+    cat > "$SETUP_DIR/docs/tmux-guide.md" << 'EOL'
+# Tmux Guide
+
+This guide covers the basics of using Tmux in the WSL development environment.
+
+## Configuration Location
+
+Your Tmux configuration is located at:
+- `~/.tmux.conf` - Main configuration file
+
+## Key Bindings
+
+The prefix key is set to `Ctrl+a` (instead of the default `Ctrl+b`).
+
+### Session Management
+- `Ctrl+a c` - Create a new window
+- `Ctrl+a ,` - Rename current window
+- `Ctrl+a w` - List all windows
+- `Ctrl+a n` - Move to next window
+- `Ctrl+a p` - Move to previous window
+- `Ctrl+a 0-9` - Switch to window by number
+- `Ctrl+a d` - Detach from session
+- `Ctrl+a r` - Reload tmux configuration
+
+### Window Splitting
+- `Ctrl+a |` - Split window horizontally
+- `Ctrl+a -` - Split window vertically
+
+### Pane Navigation
+- `Ctrl+a h` - Move to left pane
+- `Ctrl+a j` - Move to pane below
+- `Ctrl+a k` - Move to pane above
+- `Ctrl+a l` - Move to right pane
+- `Ctrl+a o` - Cycle through panes
+- `Ctrl+a x` - Close current pane
+
+### Pane Manipulation
+- `Ctrl+a z` - Toggle pane zoom (fullscreen)
+- `Ctrl+a {` - Move current pane left
+- `Ctrl+a }` - Move current pane right
+- `Ctrl+a Space` - Cycle through pane layouts
+
+### Copy Mode
+- `Ctrl+a [` - Enter copy mode
+- `Space` - Start selection (in copy mode)
+- `Enter` - Copy selection (in copy mode)
+- `Ctrl+a ]` - Paste copied text
+
+## Common Terminal Commands
+
+- `tmux` - Start a new tmux session
+- `tmux new -s name` - Start a new named session
+- `tmux attach` or `tmux a` - Attach to the last session
+- `tmux attach -t name` - Attach to a specific session
+- `tmux ls` - List all sessions
+- `tmux kill-session -t name` - Kill a specific session
+
+## Mouse Support
+
+Mouse support is enabled in the configuration. You can:
+- Click to select panes
+- Scroll to navigate through terminal output
+- Drag pane borders to resize
+- Select text with click and drag
+
+## Managing with Chezmoi
+
+Your Tmux configuration is managed by Chezmoi. To make changes:
+
+1. Edit your configuration:
+   ```bash
+   chezmoi edit ~/.tmux.conf
+   ```
+
+2. Apply changes:
+   ```bash
+   chezmoi apply
+   ```
+
+3. Reload Tmux configuration:
+   ```bash
+   tmux source-file ~/.tmux.conf
+   # Or from within tmux: Ctrl+a r
+   ```
+
+4. Sync with GitHub:
+   ```bash
+   chezmoi git add .
+   chezmoi git commit -m "Update Tmux config"
+   chezmoi git push
+   ```
+
+## Customizing
+
+### Adding new bindings
+
+Edit your `~/.tmux.conf` file with Chezmoi and add bindings:
+
+```bash
+chezmoi edit ~/.tmux.conf
+```
+
+Then add your bindings:
+```
+# Custom binding
+bind-key M-x command
+```
+
+## More Information
+
+For more details on Tmux:
+- Run `man tmux` in your terminal
+- [Tmux cheatsheet](https://tmuxcheatsheet.com/)
+EOL
+    
+    # Create WSL Utilities guide
+    cat > "$SETUP_DIR/docs/wsl-utilities-guide.md" << 'EOL'
+# WSL Utilities Guide
+
+This guide covers the WSL-specific utilities installed by the development environment setup.
+
+## Available Utilities
+
+### VS Code Integration (code)
+- Opens VS Code from WSL with correct path translation
+- Allows seamless editing of WSL files from Windows VS Code
+
+#### Usage
+```bash
+# Open current directory in VS Code
+code .
+
+# Open specific file
+code filename.txt
+
+# Open multiple files
+code file1.txt file2.txt
+```
+
+### Windows Explorer Integration (winopen)
+- Opens Windows Explorer at the current or specified WSL directory
+
+#### Usage
+```bash
+# Open current directory in Windows Explorer
+winopen
+
+# Open specific directory
+winopen ~/projects
+```
+
+### Windows Clipboard Access (clip-copy)
+- Copy text from WSL to Windows clipboard
+
+#### Usage
+```bash
+# Copy text directly
+clip-copy "Text to copy"
+
+# Copy output from another command
+echo "Hello World" | clip-copy
+
+# Copy file contents
+cat file.txt | clip-copy
+```
+
+## File Locations
+
+These utilities are installed in your `~/bin` directory:
+- `~/bin/code-wrapper.sh` - VS Code integration
+- `~/bin/winopen` - Windows Explorer integration
+- `~/bin/clip-copy` - Clipboard utility
+
+## Path Translation
+
+WSL <-> Windows path translation is handled automatically by the utilities, but you can also do it manually:
+
+```bash
+# Convert WSL path to Windows path
+wslpath -w /home/username/file.txt
+# Result: C:\Users\username\AppData\Local\Packages\...\LocalState\rootfs\home\username\file.txt
+
+# Convert Windows path to WSL path
+wslpath 'C:\Users\username\Documents'
+# Result: /mnt/c/Users/username/Documents
+```
+
+## Managing with Chezmoi
+
+Your WSL utilities are managed by Chezmoi. To make changes:
+
+1. Edit a utility:
+   ```bash
+   chezmoi edit ~/bin/winopen
+   ```
+
+2. Apply changes:
+   ```bash
+   chezmoi apply
+   ```
+
+3. Make the script executable if needed:
+   ```bash
+   chmod +x ~/bin/winopen
+   ```
+
+4. Sync with GitHub:
+   ```bash
+   chezmoi git add .
+   chezmoi git commit -m "Update WSL utilities"
+   chezmoi git push
+   ```
+
+## Customizing
+
+### Creating a new WSL utility
+
+1. Create a new script in your `~/bin` directory:
+   ```bash
+   chezmoi edit-new ~/bin/my-new-utility
+   ```
+
+2. Add your script content, for example:
+   ```bash
+   #!/bin/bash
+   # My new WSL utility
+   
+   # Your code here
+   echo "Hello from WSL!"
+   ```
+
+3. Apply the changes and make executable:
+   ```bash
+   chezmoi apply
+   chmod +x ~/bin/my-new-utility
+   ```
+
+4. Add to Chezmoi:
+   ```bash
+   chezmoi add ~/bin/my-new-utility
+   ```
+EOL
+    
+    # Create GitHub CLI guide
+    cat > "$SETUP_DIR/docs/github-cli-guide.md" << 'EOL'
+# GitHub CLI Guide
+
+This guide covers the basics of using GitHub CLI (gh) in the WSL development environment.
+
+## Basic Commands
+
+### Authentication
+- `gh auth login` - Log in to GitHub
+- `gh auth status` - Check authentication status
+- `gh auth logout` - Log out from GitHub
+
+### Repository Management
+- `gh repo create <name>` - Create a new repository
+- `gh repo clone <repository>` - Clone a repository
+- `gh repo view [repository]` - View a repository in the browser
+- `gh repo fork [repository]` - Fork a repository
+
+### Issues and Pull Requests
+- `gh issue list` - List issues
+- `gh issue create` - Create an issue
+- `gh issue view <number>` - View an issue
+- `gh pr list` - List pull requests
+- `gh pr create` - Create a pull request
+- `gh pr checkout <number>` - Check out a pull request
+
+### Other Useful Commands
+- `gh gist create <file>` - Create a gist
+- `gh gist list` - List your gists
+- `gh release create <tag>` - Create a release
+- `gh release list` - List releases
+
+## Integration with Git
+
+GitHub CLI integrates with Git to provide a more seamless workflow:
+
+```bash
+# Clone your repository
+gh repo clone your-username/your-repo
+
+# Create and push a branch
+git checkout -b feature-branch
+git commit -am "Add feature"
+git push -u origin feature-branch
+
+# Create a pull request for the branch
+gh pr create
+```
+
+## Integration with Chezmoi
+
+GitHub CLI works great with Chezmoi for managing dotfiles:
+
+1. Create a dotfiles repository:
+   ```bash
+   cd ~/.local/share/chezmoi
+   gh repo create dotfiles --private
+   ```
+
+2. Push your changes:
+   ```bash
+   chezmoi git add .
+   chezmoi git commit -m "Update configuration"
+   chezmoi git push
+   ```
+
+3. Pull your dotfiles on another machine:
+   ```bash
+   gh repo clone your-username
+   # Or with chezmoi
+   chezmoi init your-username
+   ```
+
+## Custom Aliases
+
+You can create custom aliases for GitHub CLI commands:
+
+```bash
+# Set an alias
+gh alias set prs 'pr list --state open --limit 10'
+
+# Now use it
+gh prs
+```
+
+## More Information
+
+For more details on GitHub CLI:
+- Run `gh help` for built-in help
+- Visit the [GitHub CLI documentation](https://cli.github.com/manual/)
+EOL
+    
+    # Create Quick Reference Guide
+    cat > "$SETUP_DIR/docs/quick-reference.md" << 'EOL'
+# Quick Reference
+
+This document provides a quick reference to the tools installed in your WSL development environment.
+
+## Documentation
+
+Detailed guides are available in the `~/dev-env/docs/` directory:
+- `neovim-guide.md` - Neovim editor
+- `zsh-guide.md` - Zsh shell
+- `tmux-guide.md` - Tmux terminal multiplexer
+- `chezmoi-guide.md` - Chezmoi dotfile manager
+- `wsl-utilities-guide.md` - WSL-specific utilities
+- `github-cli-guide.md` - GitHub CLI
+- `claude-code-guide.md` - Claude Code AI assistant
+
+## Common Commands
+
+### Neovim
+- `nvim file.txt` - Edit a file
+- `<leader>ff` - Find files
+- `<leader>fg` - Search in files
+- `<leader>ca` - Code actions
+- `<leader>e` - Toggle file explorer
+
+### Zsh
+- `c` - Clear terminal
+- `ll` - List files (detailed)
+- `gs` - Git status
+- `ga` - Git add
+- `gc "message"` - Git commit
+
+### Tmux
+- `tmux` - Start tmux
+- `Ctrl+a c` - Create window
+- `Ctrl+a |` - Split vertically
+- `Ctrl+a -` - Split horizontally
+- `Ctrl+a d` - Detach session
+
+### Chezmoi
+- `chezmoi add ~/.zshrc` - Add file to chezmoi
+- `chezmoi edit ~/.zshrc` - Edit managed file
+- `chezmoi apply` - Apply changes
+- `chezmoi update` - Pull and apply changes
+
+### GitHub CLI
+- `gh repo create` - Create repository
+- `gh pr create` - Create pull request
+- `gh issue create` - Create issue
+
+### WSL Utilities
+- `code .` - Open VS Code in current directory
+- `winopen` - Open Windows Explorer
+- `clip-copy "text"` - Copy to Windows clipboard
+
+## Managing Configuration
+
+All configuration files are managed by Chezmoi:
+
+1. Edit a configuration file:
+   ```bash
+   chezmoi edit ~/.zshrc  # Edit zsh config
+   chezmoi edit ~/.tmux.conf  # Edit tmux config
+   chezmoi edit ~/.config/nvim/init.lua  # Edit neovim config
+   ```
+
+2. Apply changes:
+   ```bash
+   chezmoi apply
+   ```
+
+3. Sync with GitHub:
+   ```bash
+   chezmoi git add .
+   chezmoi git commit -m "Update config"
+   chezmoi git push
+   ```
+
+4. Sync on another machine:
+   ```bash
+   chezmoi update
+   ```
+
+## Update Environment
+
+To update your entire environment:
+
+```bash
+~/dev-env/update.sh
+```
+EOL
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create component documentation"
         return 1
     fi
+    
+    print_success "Component documentation created successfully"
+    return 0
 }
 
 # --- Main Script Execution ---
@@ -1778,6 +2564,7 @@ setup_bashrc_helper || exit 1
 setup_claude_code || exit 1
 create_claude_code_docs || exit 1
 create_chezmoi_docs || exit 1
+create_component_docs || exit 1
 create_update_script || exit 1
 setup_dotfiles_repo || exit 1
 

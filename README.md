@@ -13,7 +13,7 @@ A simple script to set up a beginner-friendly development environment for WSL De
 - Node.js via NVM
 - Claude Code AI assistant
 - Core development tools and utilities
-- **Automated GitHub integration** for dotfiles and configurations
+- **Seamless GitHub integration** via GitHub CLI
 
 ## Quick Install
 
@@ -56,17 +56,19 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 - **NVM**: Node Version Manager for JavaScript development
 - **Claude Code**: AI assistant for coding
 - **WSL Utilities**: Helper scripts for Windows integration
-- **GitHub Integration**: Seamless dotfiles repository management
+- **GitHub CLI**: Seamless dotfiles repository management
 
 ## GitHub Integration
 
-The setup script now includes comprehensive GitHub integration:
+The setup script now includes comprehensive GitHub integration using GitHub CLI:
 
-1. **Single GitHub Setup**: Enter your GitHub username once at the beginning of the script
-2. **Automatic Repository Creation**: Option to automatically create a "dotfiles" repository on GitHub
-3. **Seamless Push**: Automatically push your dotfiles to GitHub during setup
+1. **Automatic CLI Installation**: Installs GitHub CLI if needed
+2. **Interactive Authentication**: Simple web-based or token auth flow
+3. **Automatic Username Detection**: No need to manually enter your username
+4. **One-Command Repository Creation**: Creates private or public repos with a single command
+5. **Seamless Remote Setup**: Automatically configures your git remote
 
-To use the GitHub repository creation feature, you'll need a personal access token with "repo" permissions from [GitHub Settings](https://github.com/settings/tokens).
+This makes it incredibly easy to get your dotfiles stored on GitHub with minimal effort.
 
 ## Neovim Setup
 
@@ -104,6 +106,76 @@ chezmoi git push
 Chezmoi allows you to handle differences between your Windows environment and WSL setup using templates and conditional logic.
 
 For a full guide, see the documentation in `~/dev-env/docs/chezmoi-guide.md` after installation.
+
+### Integrating Windows Dotfiles with WSL
+
+You can use the same Chezmoi repository to manage both your Windows dotfiles and your WSL dotfiles. Here's how to set it up:
+
+#### 1. Install Chezmoi on Windows
+
+In PowerShell:
+
+```powershell
+# Using winget
+winget install twpayne.chezmoi
+
+# OR using Scoop
+scoop install chezmoi
+
+# OR using Chocolatey
+choco install chezmoi
+```
+
+#### 2. Initialize with the Same Repository
+
+```powershell
+# Initialize Chezmoi with your GitHub repository
+chezmoi init https://github.com/YOUR-USERNAME/dotfiles.git
+
+# Apply configuration files
+chezmoi apply
+```
+
+#### 3. Add Windows-Specific Files
+
+```powershell
+# Add PowerShell profile
+chezmoi add $PROFILE
+
+# Add other Windows config files
+chezmoi add ~\AppData\Roaming\Windows Terminal\settings.json
+chezmoi add ~\.gitconfig
+```
+
+#### 4. Handle OS-Specific Differences
+
+Create template files that use Chezmoi's built-in templating to handle OS differences:
+
+```
+{{- if eq .chezmoi.os "windows" }}
+# Windows-specific settings
+{{- else }}
+# Linux/WSL-specific settings
+{{- end }}
+```
+
+#### 5. Synchronize Between Windows and WSL
+
+Since both systems point to the same GitHub repository, you can keep them in sync:
+
+```powershell
+# In Windows PowerShell
+chezmoi git pull
+chezmoi apply
+```
+
+```bash
+# In WSL
+chezmoi git pull
+chezmoi apply
+```
+
+This way, any changes you make to your configuration in either environment will be available in both!
 
 ## Updates
 
