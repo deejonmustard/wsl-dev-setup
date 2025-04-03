@@ -18,6 +18,9 @@ CYAN='\033[0;36m'    # Section headers
 SCRIPT_VERSION="0.3.2"
 NVIM_VERSION="0.10.0"
 SETUP_DIR="$HOME/dev-env"
+GITHUB_USERNAME=""
+GITHUB_TOKEN=""
+USE_GITHUB=false
 
 # --- Utility functions ---
 
@@ -273,22 +276,15 @@ setup_nvim_config() {
     # Create a temporary directory for cloning kickstart
     TEMP_NVIM_DIR=$(mktemp -d)
     
-    # Ask if user has their own fork
-    echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
-    read -r has_fork
-    
-    if [[ "$has_fork" =~ ^[Yy]$ ]]; then
-        # Ask for GitHub username
-        echo -e "${BLUE}Please enter your GitHub username:${NC}"
-        read -r github_username
+    # Check if we have GitHub username and if user has their own fork
+    if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
+        echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
+        read -r has_fork
         
-        if [ -z "$github_username" ]; then
-            print_warning "No username provided, falling back to default repository"
-            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
-        else
-            # Clone from user's fork
-            print_step "Cloning from your fork at https://github.com/$github_username/kickstart.nvim.git"
-            git clone --depth=1 "https://github.com/$github_username/kickstart.nvim.git" "$TEMP_NVIM_DIR"
+        if [[ "$has_fork" =~ ^[Yy]$ ]]; then
+            # Use the stored GitHub username
+            print_step "Cloning from your fork at https://github.com/$GITHUB_USERNAME/kickstart.nvim.git"
+            git clone --depth=1 "https://github.com/$GITHUB_USERNAME/kickstart.nvim.git" "$TEMP_NVIM_DIR"
             
             # Modify .gitignore to track lazy-lock.json as recommended
             if [ -f "$TEMP_NVIM_DIR/.gitignore" ]; then
@@ -296,11 +292,41 @@ setup_nvim_config() {
                 sed -i '/lazy-lock.json/d' "$TEMP_NVIM_DIR/.gitignore"
                 print_success "Modified .gitignore to track lazy-lock.json"
             fi
+        else
+            # Clone default kickstart.nvim
+            print_step "Installing Kickstart Neovim from official repository..."
+            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
         fi
     else
-        # Clone default kickstart.nvim
-        print_step "Installing Kickstart Neovim from official repository..."
-        git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
+        # Ask if user has their own fork (original behavior if no GitHub username provided)
+        echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
+        read -r has_fork
+        
+        if [[ "$has_fork" =~ ^[Yy]$ ]]; then
+            # Ask for GitHub username
+            echo -e "${BLUE}Please enter your GitHub username:${NC}"
+            read -r github_username
+            
+            if [ -z "$github_username" ]; then
+                print_warning "No username provided, falling back to default repository"
+                git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
+            else
+                # Clone from user's fork
+                print_step "Cloning from your fork at https://github.com/$github_username/kickstart.nvim.git"
+                git clone --depth=1 "https://github.com/$github_username/kickstart.nvim.git" "$TEMP_NVIM_DIR"
+                
+                # Modify .gitignore to track lazy-lock.json as recommended
+                if [ -f "$TEMP_NVIM_DIR/.gitignore" ]; then
+                    print_step "Modifying .gitignore to track lazy-lock.json..."
+                    sed -i '/lazy-lock.json/d' "$TEMP_NVIM_DIR/.gitignore"
+                    print_success "Modified .gitignore to track lazy-lock.json"
+                fi
+            fi
+        else
+            # Clone default kickstart.nvim
+            print_step "Installing Kickstart Neovim from official repository..."
+            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
+        fi
     fi
     
     if [ $? -ne 0 ]; then
@@ -313,26 +339,20 @@ setup_nvim_config() {
     # Create the custom directory
     mkdir -p "$TEMP_NVIM_DIR/lua/custom"
     
-    # Use chezmoi to add the entire nvim config directory
     print_step "Adding Neovim configuration to chezmoi..."
     
-    # Make sure the destination directory exists
     mkdir -p "$HOME/.config"
     
-    # Backup existing configuration if needed
     if [ -d "$HOME/.config/nvim" ] && [ "$(ls -A $HOME/.config/nvim)" ]; then
         BACKUP_DIR="$HOME/.config/nvim_backup_$(date +%Y%m%d%H%M%S)"
         print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
         mv "$HOME/.config/nvim" "$BACKUP_DIR"
     fi
     
-    # Copy the temp directory to the destination
     cp -r "$TEMP_NVIM_DIR" "$HOME/.config/nvim"
     
-    # Add to chezmoi
     chezmoi add "$HOME/.config/nvim"
     
-    # Cleanup temporary directory
     rm -rf "$TEMP_NVIM_DIR"
     
     print_success "Neovim Kickstart configuration installed and added to chezmoi"
@@ -1289,18 +1309,24 @@ setup_dotfiles_repo() {
     if [ -d "$HOME/.local/share/chezmoi/.git" ]; then
         print_step "Dotfiles repository already initialized"
         
-        # Ask if user wants to connect to a remote repository
-        echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n)${NC}"
-        read -r setup_remote
-        
-        if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
-            echo -e "${BLUE}Enter your GitHub username (or full repository URL):${NC}"
-            read -r repo_url
+        # If we have GitHub info, set up the remote repository
+        if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
+            echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n)${NC}"
+            read -r setup_remote
             
-            if [ -n "$repo_url" ]; then
-                # Check if it's just a username or a full URL
-                if [[ "$repo_url" != *"/"* && "$repo_url" != "http"* ]]; then
-                    repo_url="https://github.com/$repo_url/dotfiles.git"
+            if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
+                # Use the stored GitHub username
+                repo_url="https://github.com/$GITHUB_USERNAME/dotfiles.git"
+                
+                # Create repository if token is available
+                if [ -n "$GITHUB_TOKEN" ]; then
+                    create_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
+                else
+                    print_warning "No GitHub token available. You'll need to create the repository manually."
+                    print_warning "Create a repository named 'dotfiles' on GitHub before proceeding."
+                    
+                    echo -e "\n${BLUE}Press Enter when you've created the repository...${NC}"
+                    read -r
                 fi
                 
                 print_step "Setting up remote origin to $repo_url"
@@ -1315,7 +1341,6 @@ setup_dotfiles_repo() {
                 fi
                 
                 print_step "Pushing dotfiles to remote repository..."
-                print_warning "This will fail if the repository doesn't exist. Create it on GitHub first if needed."
                 
                 git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
                 if [ $? -ne 0 ]; then
@@ -1323,6 +1348,44 @@ setup_dotfiles_repo() {
                     print_step "To push later, run: cd ~/.local/share/chezmoi && git push -u origin main"
                 else
                     print_success "Dotfiles pushed to remote repository"
+                fi
+            fi
+        else
+            # Original behavior if no GitHub info
+            echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n)${NC}"
+            read -r setup_remote
+            
+            if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
+                echo -e "${BLUE}Enter your GitHub username (or full repository URL):${NC}"
+                read -r repo_url
+                
+                if [ -n "$repo_url" ]; then
+                    # Check if it's just a username or a full URL
+                    if [[ "$repo_url" != *"/"* && "$repo_url" != "http"* ]]; then
+                        repo_url="https://github.com/$repo_url/dotfiles.git"
+                    fi
+                    
+                    print_step "Setting up remote origin to $repo_url"
+                    cd "$HOME/.local/share/chezmoi" || return 1
+                    
+                    # Check if remote already exists
+                    if git remote | grep -q "origin"; then
+                        print_step "Remote 'origin' already exists, updating URL..."
+                        git remote set-url origin "$repo_url"
+                    else
+                        git remote add origin "$repo_url"
+                    fi
+                    
+                    print_step "Pushing dotfiles to remote repository..."
+                    print_warning "This will fail if the repository doesn't exist. Create it on GitHub first if needed."
+                    
+                    git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
+                    if [ $? -ne 0 ]; then
+                        print_warning "Failed to push to remote. The repository may not exist or you don't have permissions."
+                        print_step "To push later, run: cd ~/.local/share/chezmoi && git push -u origin main"
+                    else
+                        print_success "Dotfiles pushed to remote repository"
+                    fi
                 fi
             fi
         fi
@@ -1337,23 +1400,57 @@ setup_dotfiles_repo() {
         git add .
         git commit -m "Initial dotfiles commit"
         
-        # Ask user if they want to push to GitHub
-        echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n)${NC}"
-        read -r push_to_github
-        
-        if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
-            echo -e "${BLUE}Enter your GitHub username:${NC}"
-            read -r github_username
+        # If we have GitHub info, create and push to GitHub
+        if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
+            echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n)${NC}"
+            read -r push_to_github
             
-            if [ -n "$github_username" ]; then
-                repo_url="https://github.com/$github_username/dotfiles.git"
+            if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
+                # Use stored GitHub username
+                repo_url="https://github.com/$GITHUB_USERNAME/dotfiles.git"
+                
+                # Create repository if token is available
+                if [ -n "$GITHUB_TOKEN" ]; then
+                    create_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
+                else
+                    print_warning "No GitHub token available. You'll need to create the repository manually."
+                    print_warning "Create a repository named 'dotfiles' on GitHub before proceeding."
+                    
+                    echo -e "\n${BLUE}Press Enter when you've created the repository...${NC}"
+                    read -r
+                fi
                 
                 print_step "Setting up remote origin to $repo_url"
                 git remote add origin "$repo_url"
                 
-                print_step "To push your dotfiles to GitHub:"
-                print_warning "1. Create a repository named 'dotfiles' on GitHub"
-                print_warning "2. Run: cd ~/.local/share/chezmoi && git push -u origin main"
+                print_step "Pushing to GitHub..."
+                git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
+                if [ $? -ne 0 ]; then
+                    print_warning "Failed to push to GitHub. You can try again later with:"
+                    print_warning "cd ~/.local/share/chezmoi && git push -u origin main"
+                else 
+                    print_success "Successfully pushed dotfiles to GitHub"
+                fi
+            fi
+        else
+            # Original behavior if no GitHub info
+            echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n)${NC}"
+            read -r push_to_github
+            
+            if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
+                echo -e "${BLUE}Enter your GitHub username:${NC}"
+                read -r github_username
+                
+                if [ -n "$github_username" ]; then
+                    repo_url="https://github.com/$github_username/dotfiles.git"
+                    
+                    print_step "Setting up remote origin to $repo_url"
+                    git remote add origin "$repo_url"
+                    
+                    print_step "To push your dotfiles to GitHub:"
+                    print_warning "1. Create a repository named 'dotfiles' on GitHub"
+                    print_warning "2. Run: cd ~/.local/share/chezmoi && git push -u origin main"
+                fi
             fi
         fi
     fi
@@ -1569,11 +1666,89 @@ display_completion_message() {
     echo -e "\n${PURPLE}Happy coding!${NC}"
 }
 
+# --- GitHub setup function ---
+setup_github_info() {
+    print_header "GitHub Setup"
+    
+    echo -e "\n${BLUE}Do you want to use GitHub for your dotfiles and configurations? (y/n)${NC}"
+    read -r use_github_response
+    
+    if [[ "$use_github_response" =~ ^[Yy]$ ]]; then
+        USE_GITHUB=true
+        
+        echo -e "${BLUE}Enter your GitHub username:${NC}"
+        read -r github_username_input
+        
+        if [ -n "$github_username_input" ]; then
+            GITHUB_USERNAME="$github_username_input"
+            print_success "GitHub username set to: $GITHUB_USERNAME"
+            
+            echo -e "\n${BLUE}Do you want to create a GitHub repository for your dotfiles? (y/n)${NC}"
+            read -r create_repo_response
+            
+            if [[ "$create_repo_response" =~ ^[Yy]$ ]]; then
+                echo -e "${BLUE}A personal access token is required to create a repository.${NC}"
+                echo -e "${BLUE}You can create one at: https://github.com/settings/tokens${NC}"
+                echo -e "${BLUE}Make sure it has 'repo' permissions.${NC}"
+                echo -e "${BLUE}Enter your GitHub personal access token:${NC}"
+                read -r github_token_input
+                
+                if [ -n "$github_token_input" ]; then
+                    GITHUB_TOKEN="$github_token_input"
+                    print_success "GitHub token saved (will not be stored permanently)"
+                else
+                    print_warning "No token provided. You'll need to create the repository manually."
+                fi
+            fi
+        else
+            print_warning "No GitHub username provided. Some GitHub features will be limited."
+        fi
+    else
+        print_step "Skipping GitHub integration"
+    fi
+    
+    return 0
+}
+
+# Function to create GitHub repository
+create_github_repository() {
+    local repo_name="$1"
+    local description="$2"
+    
+    if [ -z "$GITHUB_USERNAME" ] || [ -z "$GITHUB_TOKEN" ]; then
+        print_warning "GitHub username or token not provided. Cannot create repository."
+        return 1
+    fi
+    
+    print_step "Creating GitHub repository: $repo_name"
+    
+    # Create the repository using GitHub API
+    response=$(curl -s -X POST \
+        -H "Authorization: token $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github.v3+json" \
+        https://api.github.com/user/repos \
+        -d "{\"name\":\"$repo_name\",\"description\":\"$description\",\"private\":false,\"auto_init\":false}")
+    
+    # Check if the repository was created successfully
+    if echo "$response" | grep -q "html_url"; then
+        repo_url=$(echo "$response" | grep -o '"html_url": "[^"]*"' | head -1 | cut -d'"' -f4)
+        print_success "Repository created successfully: $repo_url"
+        return 0
+    else
+        error_message=$(echo "$response" | grep -o '"message": "[^"]*"' | head -1 | cut -d'"' -f4)
+        print_error "Failed to create repository: $error_message"
+        return 1
+    fi
+}
+
 # --- Main Script Execution ---
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${PURPLE}| WSL Development Environment Setup v${SCRIPT_VERSION} |${NC}"
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${GREEN}This script will set up a development environment optimized for WSL Debian${NC}"
+
+# Set up GitHub information first
+setup_github_info || exit 1
 
 # Step 1: Initial setup
 setup_workspace || exit 1

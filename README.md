@@ -8,11 +8,12 @@ A simple script to set up a beginner-friendly development environment for WSL De
 
 - Neovim with Kickstart configuration
 - Zsh with Oh My Zsh and plugins
-- Tmux for terminal multiplexing
+- Tmux for terminal multiplexer
 - Chezmoi for dotfile management across Windows and WSL
 - Node.js via NVM
 - Claude Code AI assistant
 - Core development tools and utilities
+- **Automated GitHub integration** for dotfiles and configurations
 
 ## Quick Install
 
@@ -55,6 +56,17 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 - **NVM**: Node Version Manager for JavaScript development
 - **Claude Code**: AI assistant for coding
 - **WSL Utilities**: Helper scripts for Windows integration
+- **GitHub Integration**: Seamless dotfiles repository management
+
+## GitHub Integration
+
+The setup script now includes comprehensive GitHub integration:
+
+1. **Single GitHub Setup**: Enter your GitHub username once at the beginning of the script
+2. **Automatic Repository Creation**: Option to automatically create a "dotfiles" repository on GitHub
+3. **Seamless Push**: Automatically push your dotfiles to GitHub during setup
+
+To use the GitHub repository creation feature, you'll need a personal access token with "repo" permissions from [GitHub Settings](https://github.com/settings/tokens).
 
 ## Neovim Setup
 
