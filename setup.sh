@@ -120,7 +120,7 @@ install_core_deps() {
     print_step "Installing essential packages..."
     
     sudo apt install -y curl wget git python3 python3-pip python3-venv unzip \
-        build-essential file cmake ripgrep fd-find fzf tmux zsh ansible \
+        build-essential file cmake ripgrep fd-find fzf tmux zsh \
         jq bat htop
     
     if [ $? -ne 0 ]; then
@@ -267,68 +267,75 @@ install_neovim() {
 
 # Setup Neovim with Kickstart configuration
 setup_nvim_config() {
-    print_header "Setting up Neovim configuration"
+    print_header "Setting up Neovim configuration with Chezmoi"
     print_step "Setting up Kickstart Neovim configuration..."
 
-    # Create necessary directories
-    ensure_dir ~/.config || return 1
-    ensure_dir ~/.config/nvim || return 1
-
-    # Check if kickstart is already installed
-    if [ -f ~/.config/nvim/init.lua ] && grep -q "kickstart" ~/.config/nvim/init.lua; then
-        print_step "Kickstart Neovim configuration already installed, updating..."
-        # Just create the custom directory without touching kickstart setup
-        ensure_dir ~/.config/nvim/lua/custom || return 1
-    else
-        # Backup existing configuration if any
-        if [ -d ~/.config/nvim ] && [ "$(ls -A ~/.config/nvim)" ]; then
-            BACKUP_DIR="$HOME/.config/nvim_backup_$(date +%Y%m%d%H%M%S)"
-            print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
-            mv ~/.config/nvim "$BACKUP_DIR"
-            ensure_dir ~/.config/nvim || return 1
-        fi
+    # Create a temporary directory for cloning kickstart
+    TEMP_NVIM_DIR=$(mktemp -d)
+    
+    # Ask if user has their own fork
+    echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
+    read -r has_fork
+    
+    if [[ "$has_fork" =~ ^[Yy]$ ]]; then
+        # Ask for GitHub username
+        echo -e "${BLUE}Please enter your GitHub username:${NC}"
+        read -r github_username
         
-        # Ask if user has their own fork
-        echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
-        read -r has_fork
-        
-        if [[ "$has_fork" =~ ^[Yy]$ ]]; then
-            # Ask for GitHub username
-            echo -e "${BLUE}Please enter your GitHub username:${NC}"
-            read -r github_username
-            
-            if [ -z "$github_username" ]; then
-                print_warning "No username provided, falling back to default repository"
-                git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
-            else
-                # Clone from user's fork
-                print_step "Cloning from your fork at https://github.com/$github_username/kickstart.nvim.git"
-                git clone --depth=1 "https://github.com/$github_username/kickstart.nvim.git" ~/.config/nvim
-                
-                # Modify .gitignore to track lazy-lock.json as recommended
-                if [ -f ~/.config/nvim/.gitignore ]; then
-                    print_step "Modifying .gitignore to track lazy-lock.json..."
-                    sed -i '/lazy-lock.json/d' ~/.config/nvim/.gitignore
-                    print_success "Modified .gitignore to track lazy-lock.json"
-                fi
-            fi
+        if [ -z "$github_username" ]; then
+            print_warning "No username provided, falling back to default repository"
+            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
         else
-            # Clone default kickstart.nvim
-            print_step "Installing Kickstart Neovim from official repository..."
-            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git ~/.config/nvim
+            # Clone from user's fork
+            print_step "Cloning from your fork at https://github.com/$github_username/kickstart.nvim.git"
+            git clone --depth=1 "https://github.com/$github_username/kickstart.nvim.git" "$TEMP_NVIM_DIR"
+            
+            # Modify .gitignore to track lazy-lock.json as recommended
+            if [ -f "$TEMP_NVIM_DIR/.gitignore" ]; then
+                print_step "Modifying .gitignore to track lazy-lock.json..."
+                sed -i '/lazy-lock.json/d' "$TEMP_NVIM_DIR/.gitignore"
+                print_success "Modified .gitignore to track lazy-lock.json"
+            fi
         fi
-        
-        if [ $? -ne 0 ]; then
-            print_error "Failed to clone Kickstart Neovim"
-            print_warning "Make sure git is installed and you have internet connectivity"
-            return 1
-        fi
-        
-        # Make sure custom directory exists
-        ensure_dir ~/.config/nvim/lua/custom || return 1
+    else
+        # Clone default kickstart.nvim
+        print_step "Installing Kickstart Neovim from official repository..."
+        git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
     fi
-
-    print_success "Neovim Kickstart configuration installed"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to clone Kickstart Neovim"
+        print_warning "Make sure git is installed and you have internet connectivity"
+        rm -rf "$TEMP_NVIM_DIR"
+        return 1
+    fi
+    
+    # Create the custom directory
+    mkdir -p "$TEMP_NVIM_DIR/lua/custom"
+    
+    # Use chezmoi to add the entire nvim config directory
+    print_step "Adding Neovim configuration to chezmoi..."
+    
+    # Make sure the destination directory exists
+    mkdir -p "$HOME/.config"
+    
+    # Backup existing configuration if needed
+    if [ -d "$HOME/.config/nvim" ] && [ "$(ls -A $HOME/.config/nvim)" ]; then
+        BACKUP_DIR="$HOME/.config/nvim_backup_$(date +%Y%m%d%H%M%S)"
+        print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
+        mv "$HOME/.config/nvim" "$BACKUP_DIR"
+    fi
+    
+    # Copy the temp directory to the destination
+    cp -r "$TEMP_NVIM_DIR" "$HOME/.config/nvim"
+    
+    # Add to chezmoi
+    chezmoi add "$HOME/.config/nvim"
+    
+    # Cleanup temporary directory
+    rm -rf "$TEMP_NVIM_DIR"
+    
+    print_success "Neovim Kickstart configuration installed and added to chezmoi"
     return 0
 }
 
@@ -356,6 +363,98 @@ setup_ansible() {
     ensure_dir "$SETUP_DIR/ansible/roles/nodejs/tasks" || return 1
     
     print_success "Ansible setup completed"
+    return 0
+}
+
+# Setup Chezmoi for dotfile management
+setup_chezmoi() {
+    print_header "Setting up Chezmoi for dotfile management"
+    
+    if ! command_exists chezmoi; then
+        print_step "Installing Chezmoi..."
+        sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Chezmoi"
+            print_warning "Make sure you have internet connectivity"
+            return 1
+        fi
+        
+        # Add to PATH for current session
+        export PATH="$HOME/.local/bin:$PATH"
+        print_success "Chezmoi installed successfully!"
+    else
+        print_step "Chezmoi is already installed"
+        chezmoi --version
+    fi
+    
+    # Create directory for chezmoi documentation
+    ensure_dir "$SETUP_DIR/docs/chezmoi" || return 1
+    
+    # Create a basic chezmoi configuration
+    print_step "Creating basic Chezmoi configuration..."
+    
+    # Initialize chezmoi with empty repo if user doesn't already have a dotfiles repo
+    if [ ! -d "$HOME/.local/share/chezmoi" ]; then
+        print_step "Initializing Chezmoi with empty repository..."
+        chezmoi init
+        if [ $? -ne 0 ]; then
+            print_error "Failed to initialize Chezmoi"
+            return 1
+        fi
+        
+        # Ask if user wants to use an existing dotfiles repository
+        echo -e "\n${BLUE}Do you have an existing dotfiles repo on GitHub? (y/n)${NC}"
+        read -r has_dotfiles
+        
+        if [[ "$has_dotfiles" =~ ^[Yy]$ ]]; then
+            # Ask for GitHub username or full repo URL
+            echo -e "${BLUE}Enter your GitHub username or the full repository URL:${NC}"
+            read -r dotfiles_repo
+            
+            if [ -n "$dotfiles_repo" ]; then
+                # Check if it's just a username or a full URL
+                if [[ "$dotfiles_repo" != *"/"* && "$dotfiles_repo" != "http"* ]]; then
+                    print_step "Using GitHub repository: https://github.com/$dotfiles_repo/dotfiles.git"
+                    chezmoi init "https://github.com/$dotfiles_repo/dotfiles.git"
+                else
+                    print_step "Using repository: $dotfiles_repo"
+                    chezmoi init "$dotfiles_repo"
+                fi
+                
+                # Apply dotfiles with special flag to keep local changes by default
+                chezmoi apply --keep-going
+            else
+                print_warning "No repository provided, using empty local repository"
+            fi
+        fi
+    else
+        print_step "Chezmoi already initialized"
+    fi
+    
+    # Create a simple README in the chezmoi source directory if it doesn't exist
+    if [ ! -f "$HOME/.local/share/chezmoi/README.md" ]; then
+        cat > "$HOME/.local/share/chezmoi/README.md" << 'EOL'
+# My Dotfiles
+
+This directory contains my dotfiles managed by [chezmoi](https://www.chezmoi.io).
+
+## How to use
+
+To apply changes:
+```bash
+chezmoi apply
+```
+
+To add a new file:
+```bash
+chezmoi add ~/.zshrc
+```
+
+For more information, see the [chezmoi documentation](https://www.chezmoi.io/user-guide/command-overview/).
+EOL
+    fi
+    
+    print_success "Chezmoi setup completed"
     return 0
 }
 
@@ -407,10 +506,13 @@ setup_zsh() {
 
 # Setup Zsh configuration file
 setup_zshrc() {
-    print_header "Creating Zsh configuration file"
+    print_header "Creating Zsh configuration file with Chezmoi"
     print_step "Creating Zsh configuration..."
     
-    cat > "$HOME/.zshrc" << 'EOL'
+    # Create a temporary file with our zshrc content
+    TEMP_ZSHRC=$(mktemp)
+    
+    cat > "$TEMP_ZSHRC" << 'EOL'
 # Path to Oh My Zsh installation
 export ZSH="$HOME/.oh-my-zsh"
 
@@ -442,9 +544,21 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
-# Run neofetch at startup for system info
+# Run neofetch and show quick reference at startup
 if [ -f "/usr/bin/neofetch" ]; then
   /usr/bin/neofetch --backend ascii --disable disk --disk_show '/' --cpu_speed on --cpu_cores logical
+  
+  # Display a brief helpful summary after neofetch
+  echo ""
+  echo "🚀 WSL Dev Environment - Quick Reference"
+  echo "───────────────────────────────────────"
+  echo "📝 Edit config files: chezmoi edit ~/.zshrc"
+  echo "🔄 Apply dotfile changes: chezmoi apply"
+  echo "📊 Check dotfile status: chezmoi status"
+  echo "💻 Editor: nvim | Multiplexer: tmux | Shell: zsh"
+  echo "📋 Docs: ~/dev-env/docs/"
+  echo "🔨 Update environment: ~/dev-env/update.sh"
+  echo ""
 fi
 
 # Aliases - focused on productivity
@@ -491,17 +605,41 @@ fi
 EOL
     
     if [ $? -ne 0 ]; then
-        print_error "Failed to create Zsh configuration file"
+        print_error "Failed to create temporary Zsh configuration file"
+        rm -f "$TEMP_ZSHRC"
         return 1
     fi
     
-    print_success "Zsh configuration file created"
+    # Add to chezmoi
+    print_step "Adding zshrc to chezmoi..."
+    
+    # Check if ~/.zshrc already exists and backup if needed
+    if [ -f "$HOME/.zshrc" ]; then
+        print_step "Backing up existing .zshrc file..."
+        mv "$HOME/.zshrc" "$HOME/.zshrc.backup.$(date +%Y%m%d%H%M%S)"
+    fi
+    
+    # Copy our template to home directory first
+    cp "$TEMP_ZSHRC" "$HOME/.zshrc"
+    
+    # Add to chezmoi
+    chezmoi add "$HOME/.zshrc"
+    
+    # Cleanup
+    rm -f "$TEMP_ZSHRC"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to add zshrc to chezmoi"
+        return 1
+    fi
+    
+    print_success "Zsh configuration created and added to chezmoi"
     return 0
 }
 
 # Setup tmux 
 setup_tmux() {
-    print_header "Setting up tmux configuration"
+    print_header "Setting up tmux configuration with Chezmoi"
     
     # Check if tmux is installed
     if ! command_exists tmux; then
@@ -515,7 +653,9 @@ setup_tmux() {
     
     # Create tmux configuration
     print_step "Creating tmux configuration..."
-    cat > "$HOME/.tmux.conf" << 'EOL'
+    TEMP_TMUX=$(mktemp)
+    
+    cat > "$TEMP_TMUX" << 'EOL'
 # Use Ctrl+a as prefix (easier to reach than Ctrl+b)
 unbind C-b
 set-option -g prefix C-a
@@ -559,24 +699,46 @@ set -g status-interval 60
 EOL
     
     if [ $? -ne 0 ]; then
-        print_error "Failed to create tmux configuration"
+        print_error "Failed to create temporary tmux configuration"
+        rm -f "$TEMP_TMUX"
         return 1
     fi
     
-    print_success "tmux configuration completed"
+    # Backup existing file if needed
+    if [ -f "$HOME/.tmux.conf" ]; then
+        print_step "Backing up existing .tmux.conf file..."
+        mv "$HOME/.tmux.conf" "$HOME/.tmux.conf.backup.$(date +%Y%m%d%H%M%S)"
+    fi
+    
+    # Copy our template to home directory
+    cp "$TEMP_TMUX" "$HOME/.tmux.conf"
+    
+    # Add to chezmoi
+    print_step "Adding tmux.conf to chezmoi..."
+    chezmoi add "$HOME/.tmux.conf"
+    
+    # Cleanup
+    rm -f "$TEMP_TMUX"
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to add tmux.conf to chezmoi"
+        return 1
+    fi
+    
+    print_success "tmux configuration created and added to chezmoi"
     return 0
 }
 
 # Setup WSL utilities
 setup_wsl_utilities() {
-    print_header "Setting up WSL utilities"
+    print_header "Setting up WSL utilities with Chezmoi"
     
-    # Create bin directory
-    ensure_dir ~/bin || return 1
+    # Temporary directory for WSL utility scripts
+    TEMP_DIR=$(mktemp -d)
     
     # Create VS Code wrapper
     print_step "Creating VS Code wrapper script..."
-    cat > "$HOME/bin/code-wrapper.sh" << 'EOL'
+    cat > "$TEMP_DIR/code-wrapper.sh" << 'EOL'
 #!/bin/bash
 # VS Code wrapper script for WSL
 
@@ -605,11 +767,9 @@ cmd.exe /c "code" "${args[@]}" > /dev/null 2>&1
 exit $?
 EOL
     
-    chmod +x "$HOME/bin/code-wrapper.sh"
-    
     # Create Windows path opener
     print_step "Creating Windows path opener utility..."
-    cat > "$HOME/bin/winopen" << 'EOL'
+    cat > "$TEMP_DIR/winopen" << 'EOL'
 #!/bin/bash
 # Open current directory or specified path in Windows Explorer
 
@@ -618,11 +778,9 @@ windows_path=$(wslpath -w "$(realpath "$path_to_open")")
 explorer.exe "$windows_path"
 EOL
     
-    chmod +x "$HOME/bin/winopen"
-    
     # Create clipboard utility
     print_step "Creating clipboard utility..."
-    cat > "$HOME/bin/clip-copy" << 'EOL'
+    cat > "$TEMP_DIR/clip-copy" << 'EOL'
 #!/bin/bash
 # Copy text to Windows clipboard
 
@@ -635,14 +793,46 @@ else
 fi
 EOL
     
-    chmod +x "$HOME/bin/clip-copy"
+    # Make scripts executable
+    chmod +x "$TEMP_DIR/code-wrapper.sh"
+    chmod +x "$TEMP_DIR/winopen"
+    chmod +x "$TEMP_DIR/clip-copy"
     
-    # Create alias for code-wrapper in bashrc
+    # Create bin directory if it doesn't exist
+    ensure_dir ~/bin || return 1
+    
+    # Backup existing scripts if needed
+    for script in "code-wrapper.sh" "winopen" "clip-copy"; do
+        if [ -f "$HOME/bin/$script" ]; then
+            print_step "Backing up existing $script..."
+            mv "$HOME/bin/$script" "$HOME/bin/${script}.backup.$(date +%Y%m%d%H%M%S)"
+        fi
+    done
+    
+    # Copy scripts to bin directory
+    cp "$TEMP_DIR/code-wrapper.sh" "$HOME/bin/"
+    cp "$TEMP_DIR/winopen" "$HOME/bin/"
+    cp "$TEMP_DIR/clip-copy" "$HOME/bin/"
+    
+    # Add bin directory to chezmoi
+    print_step "Adding WSL utility scripts to chezmoi..."
+    chezmoi add "$HOME/bin/code-wrapper.sh" "$HOME/bin/winopen" "$HOME/bin/clip-copy"
+    
+    # Update bashrc with code alias via chezmoi
     if ! grep -q "alias code=" ~/.bashrc; then
+        print_step "Adding code alias to .bashrc..."
         echo 'alias code="$HOME/bin/code-wrapper.sh"' >> ~/.bashrc
+        
+        # Update bashrc in chezmoi
+        if chezmoi managed ~/.bashrc &>/dev/null; then
+            chezmoi add ~/.bashrc
+        fi
     fi
     
-    print_success "WSL utilities setup completed"
+    # Cleanup temporary directory
+    rm -rf "$TEMP_DIR"
+    
+    print_success "WSL utilities setup completed and added to chezmoi"
     return 0
 }
 
@@ -702,9 +892,9 @@ setup_nodejs() {
     return 0
 }
 
-# Setup Claude Code from Anthropic
+# Setup Claude Code from Anthropic with chezmoi integration
 setup_claude_code() {
-    print_header "Installing Claude Code"
+    print_header "Installing Claude Code with Chezmoi integration"
     
     # First ensure Node.js is properly set up
     print_step "Checking Node.js installation..."
@@ -739,6 +929,18 @@ setup_claude_code() {
         return 1
     fi
     
+    # Check for Claude Code config directory
+    CLAUDE_CONFIG_DIR="$HOME/.config/claude-code"
+    if [ -d "$CLAUDE_CONFIG_DIR" ]; then
+        print_step "Adding Claude Code configuration to chezmoi..."
+        chezmoi add "$CLAUDE_CONFIG_DIR"
+        print_success "Claude Code configuration added to chezmoi"
+    else
+        print_step "No Claude Code configuration directory found yet."
+        print_step "It will be created when you first run 'claude auth login'"
+        print_step "After that, add it to chezmoi with: chezmoi add ~/.config/claude-code"
+    fi
+    
     # Verify installation
     if command_exists claude; then
         print_success "Claude Code installed successfully!"
@@ -748,7 +950,7 @@ setup_claude_code() {
         return 1
     fi
     
-    print_success "Claude Code setup completed"
+    print_success "Claude Code setup completed with chezmoi integration"
     return 0
 }
 
@@ -831,6 +1033,155 @@ EOL
     return 0
 }
 
+# Create documentation for Chezmoi
+create_chezmoi_docs() {
+    print_header "Creating Chezmoi documentation"
+    
+    ensure_dir "$SETUP_DIR/docs" || return 1
+    
+    cat > "$SETUP_DIR/docs/chezmoi-guide.md" << 'EOL'
+# Chezmoi Guide for Dotfile Management
+
+Chezmoi is a powerful dotfile manager that helps you keep your configuration files (dotfiles) in sync across multiple machines.
+
+## Getting Started
+
+### Basic Commands
+
+* `chezmoi add <file>` - Add a file to chezmoi
+* `chezmoi edit <file>` - Edit a file managed by chezmoi
+* `chezmoi apply` - Apply changes to your home directory
+* `chezmoi update` - Pull the latest changes from your dotfiles repo and apply them
+* `chezmoi diff` - See what changes chezmoi would make to your home directory
+
+### Managing Your Configuration Between Windows and WSL
+
+Chezmoi is perfect for maintaining consistency between your Windows environment and WSL:
+
+1. **Initial Setup**:
+   ```bash
+   # Initialize chezmoi with your existing dotfiles repository
+   chezmoi init https://github.com/yourusername/dotfiles.git
+   
+   # Or initialize with a new empty repository
+   chezmoi init
+   ```
+
+2. **Adding Files**:
+   ```bash
+   # Add your .zshrc
+   chezmoi add ~/.zshrc
+   
+   # Add your .gitconfig
+   chezmoi add ~/.gitconfig
+   ```
+
+3. **Apply Changes**:
+   ```bash
+   # Apply all changes
+   chezmoi apply
+   ```
+
+## Templates and Machine-Specific Configuration
+
+Chezmoi uses templates to handle differences between machines:
+
+### Template Example
+
+```
+{{- if eq .chezmoi.os "linux" }}
+# Linux-specific configuration
+{{- else if eq .chezmoi.os "windows" }}
+# Windows-specific configuration
+{{- end }}
+```
+
+### Data Files
+
+You can store machine-specific data in `.chezmoi.toml`:
+
+```toml
+[data]
+    email = "your.email@example.com"
+    name = "Your Name"
+```
+
+Then reference it in templates:
+
+```
+[user]
+    email = "{{ .email }}"
+    name = "{{ .name }}"
+```
+
+## Syncing with Git
+
+Chezmoi works seamlessly with Git for version control:
+
+```bash
+# Make changes to your dotfiles
+chezmoi add ~/.zshrc
+
+# Commit the changes to your local repo
+chezmoi git add .
+chezmoi git commit -m "Update zshrc"
+
+# Push to your remote repo
+chezmoi git push
+```
+
+## Common Workflows
+
+### Setting Up a New Machine
+
+```bash
+# Install chezmoi
+sh -c "$(curl -fsLS get.chezmoi.io)"
+
+# Initialize with your dotfiles repo
+chezmoi init https://github.com/yourusername/dotfiles.git
+
+# See what changes would be made
+chezmoi diff
+
+# Apply the changes
+chezmoi apply
+```
+
+### Day-to-Day Usage
+
+1. Make changes to your dotfiles directly with your editor
+2. Run `chezmoi add ~/.filename` to update chezmoi's source state
+3. Run `chezmoi git commit -m "Description of changes"` to commit the changes
+4. Run `chezmoi git push` to push the changes to your remote repository
+
+### Pulling Changes from Another Machine
+
+```bash
+chezmoi update
+```
+
+## Best Practices
+
+1. **Start Simple**: Begin by adding just a few important dotfiles
+2. **Use Templates Sparingly**: Only use templates when necessary
+3. **Commit Often**: Make small, regular commits to your dotfiles repository
+4. **Document Your Setup**: Keep notes about your configuration choices
+
+## For More Information
+
+Visit the [Chezmoi documentation](https://www.chezmoi.io/) for comprehensive guides and examples.
+EOL
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create Chezmoi documentation"
+        return 1
+    fi
+    
+    print_success "Chezmoi documentation created"
+    return 0
+}
+
 # Create update script
 create_update_script() {
     print_header "Creating update script"
@@ -863,6 +1214,13 @@ if command -v claude >/dev/null 2>&1; then
   echo -e "${GREEN}Claude Code updated${NC}"
 fi
 
+# Update dotfiles with chezmoi if it's installed
+if command -v chezmoi >/dev/null 2>&1; then
+  echo -e "${BLUE}Updating dotfiles with Chezmoi...${NC}"
+  chezmoi update
+  echo -e "${GREEN}Dotfiles updated${NC}"
+fi
+
 echo -e "${GREEN}Environment updated successfully!${NC}"
 ENDOFFILE
     
@@ -881,6 +1239,149 @@ ENDOFFILE
     return 0
 }
 
+# Setup bash helper for users who prefer bash
+setup_bashrc_helper() {
+    print_header "Setting up Bash quick reference with Chezmoi"
+    print_step "Adding quick reference to .bashrc..."
+    
+    # Create a temp file with the quick reference content
+    QUICK_REF=$(mktemp)
+    cat > "$QUICK_REF" << 'EOL'
+
+# Display helpful quick reference after neofetch
+if [ -f "/usr/bin/neofetch" ]; then
+  # Display a brief helpful summary
+  echo ""
+  echo "🚀 WSL Dev Environment - Quick Reference"
+  echo "───────────────────────────────────────"
+  echo "📝 Edit config files: chezmoi edit ~/.bashrc"
+  echo "🔄 Apply dotfile changes: chezmoi apply"
+  echo "📊 Check dotfile status: chezmoi status"
+  echo "💻 Editor: nvim | Multiplexer: tmux"
+  echo "📋 Docs: ~/dev-env/docs/"
+  echo "🔨 Update environment: ~/dev-env/update.sh"
+  echo ""
+fi
+EOL
+    
+    # First, check if chezmoi is managing .bashrc
+    if ! chezmoi managed ~/.bashrc &>/dev/null; then
+        print_step "Adding existing .bashrc to chezmoi..."
+        # Add the current .bashrc to chezmoi
+        chezmoi add ~/.bashrc
+        if [ $? -ne 0 ]; then
+            print_error "Failed to add .bashrc to chezmoi"
+            rm -f "$QUICK_REF"
+            return 1
+        fi
+    fi
+    
+    # Now edit the managed file using chezmoi
+    print_step "Updating .bashrc with chezmoi..."
+    
+    # Check if neofetch alias exists
+    if grep -q "alias neofetch='/usr/bin/neofetch'" ~/.bashrc; then
+        # Check if quick reference already exists
+        if ! grep -q "WSL Dev Environment - Quick Reference" ~/.bashrc; then
+            # Append our quick reference
+            cat "$QUICK_REF" >> "$HOME/.bashrc"
+            # Update chezmoi state
+            chezmoi add ~/.bashrc
+            print_success "Added quick reference to .bashrc via chezmoi"
+        else
+            print_step "Quick reference already exists in .bashrc"
+        fi
+    else
+        # If neofetch alias is missing, add it first
+        print_step "Adding neofetch alias to .bashrc..."
+        echo "alias neofetch='/usr/bin/neofetch'" >> ~/.bashrc
+        cat "$QUICK_REF" >> "$HOME/.bashrc"
+        # Update chezmoi state
+        chezmoi add ~/.bashrc
+        print_success "Added neofetch alias and quick reference to .bashrc via chezmoi"
+    fi
+    
+    # Cleanup
+    rm -f "$QUICK_REF"
+    
+    return 0
+}
+
+# Setup Git configuration with chezmoi
+setup_git_config() {
+    print_header "Setting up Git configuration with Chezmoi"
+    
+    # Check if Git is installed
+    if ! command_exists git; then
+        print_warning "Git is not installed. Installing Git..."
+        sudo apt install -y git
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Git"
+            return 1
+        fi
+    fi
+    
+    # Prompt for Git configuration
+    print_step "Setting up Git user configuration..."
+    
+    # Check if user already has Git config
+    if [ -f "$HOME/.gitconfig" ]; then
+        print_step "Existing Git configuration found. Adding to chezmoi..."
+        chezmoi add "$HOME/.gitconfig"
+        print_success "Added existing Git configuration to chezmoi"
+        return 0
+    fi
+    
+    # Prompt for user information
+    echo -e "\n${BLUE}Do you want to configure Git with your user information? (y/n)${NC}"
+    read -r setup_git
+    
+    if [[ "$setup_git" =~ ^[Yy]$ ]]; then
+        # Ask for name and email
+        echo -e "${BLUE}Enter your Git user name:${NC}"
+        read -r git_name
+        
+        echo -e "${BLUE}Enter your Git email address:${NC}"
+        read -r git_email
+        
+        # Create temporary gitconfig
+        TEMP_GITCONFIG=$(mktemp)
+        
+        cat > "$TEMP_GITCONFIG" << EOL
+[user]
+    name = $git_name
+    email = $git_email
+[init]
+    defaultBranch = main
+[core]
+    editor = nvim
+    autocrlf = input
+[color]
+    ui = auto
+[pull]
+    rebase = false
+[push]
+    default = simple
+EOL
+        
+        # Copy to home directory
+        cp "$TEMP_GITCONFIG" "$HOME/.gitconfig"
+        
+        # Add to chezmoi
+        print_step "Adding Git configuration to chezmoi..."
+        chezmoi add "$HOME/.gitconfig"
+        
+        # Cleanup
+        rm -f "$TEMP_GITCONFIG"
+        
+        print_success "Git configuration created and added to chezmoi"
+    else
+        print_step "Skipping Git configuration setup"
+    fi
+    
+    return 0
+}
+
 # Display completion message
 display_completion_message() {
     echo -e "\n${PURPLE}=======================${NC}"
@@ -892,16 +1393,30 @@ display_completion_message() {
     echo -e "- Neovim with Kickstart configuration"
     echo -e "- Zsh with Oh My Zsh"
     echo -e "- Tmux terminal multiplexer"
+    echo -e "- Chezmoi for dotfile management"
     echo -e "- Node.js via NVM"
     echo -e "- Claude Code AI assistant"
     
     echo -e "\n${BLUE}To update your environment in the future:${NC}"
     echo -e "- Run ${YELLOW}~/dev-env/update.sh${NC}"
+    echo -e "- For dotfiles: ${YELLOW}chezmoi update${NC}"
     
     echo -e "\n${BLUE}Neovim Kickstart Tips:${NC}"
     echo -e "- If you didn't use your own fork, consider forking kickstart.nvim on GitHub:"
     echo -e "  ${YELLOW}https://github.com/nvim-lua/kickstart.nvim/fork${NC}"
     echo -e "- Customize your Neovim setup in ${YELLOW}~/.config/nvim/lua/custom/${NC}"
+    
+    echo -e "\n${BLUE}Chezmoi Tips:${NC}"
+    echo -e "- Add configuration files: ${YELLOW}chezmoi add ~/.zshrc ~/.gitconfig${NC}"
+    echo -e "- Edit existing dotfiles: ${YELLOW}chezmoi edit ~/.zshrc${NC}"
+    echo -e "- See pending changes: ${YELLOW}chezmoi diff${NC}"
+    echo -e "- Apply changes: ${YELLOW}chezmoi apply${NC}"
+    echo -e "- Check documentation: ${YELLOW}cat ~/dev-env/docs/chezmoi-guide.md${NC}"
+    echo -e "\n${BLUE}Syncing Between Windows and WSL:${NC}"
+    echo -e "- Create a GitHub repo for your dotfiles"
+    echo -e "- Run: ${YELLOW}chezmoi git remote add origin https://github.com/yourusername/dotfiles.git${NC}"
+    echo -e "- Push changes: ${YELLOW}chezmoi git push -u origin main${NC}"
+    echo -e "- On another machine: ${YELLOW}chezmoi init https://github.com/yourusername/dotfiles.git${NC}"
     
     echo -e "\n${PURPLE}Happy coding!${NC}"
 }
@@ -912,21 +1427,32 @@ echo -e "${PURPLE}| WSL Development Environment Setup v${SCRIPT_VERSION} |${NC}"
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${GREEN}This script will set up a development environment optimized for WSL Debian${NC}"
 
-# Execute setup functions in sequence, but stop if any fails
+# Step 1: Initial setup
 setup_workspace || exit 1
 update_system || exit 1
 install_core_deps || exit 1
+
+# Step 2: Set up chezmoi early for dotfile management
+setup_chezmoi || exit 1
+
+# Step 3: Install basic tools
 install_neofetch || exit 1
 install_neovim || exit 1
-setup_nvim_config || exit 1
-setup_ansible || exit 1
+setup_git_config || exit 1
 setup_zsh || exit 1
+
+# Step 4: Configure dotfiles with chezmoi
 setup_zshrc || exit 1
+setup_nvim_config || exit 1
 setup_tmux || exit 1
 setup_wsl_utilities || exit 1
+setup_bashrc_helper || exit 1
+
+# Step 5: Dev tools and documentation
 setup_nodejs || exit 1
 setup_claude_code || exit 1
 create_claude_code_docs || exit 1
+create_chezmoi_docs || exit 1
 create_update_script || exit 1
 
 # Final setup and display completion message
