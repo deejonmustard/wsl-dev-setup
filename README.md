@@ -95,16 +95,16 @@ This setup uses a custom source directory for Chezmoi at `~/dev-env/dotfiles` in
 
 ```bash
 # Add a configuration file to be managed by chezmoi
-chezmoi add ~/.zshrc
+chezmoi add --source="$HOME/dev-env/dotfiles" ~/.zshrc
 
 # Edit a configuration file
-chezmoi edit ~/.zshrc
+chezmoi edit --source="$HOME/dev-env/dotfiles" ~/.zshrc
 
 # Apply changes to your dotfiles
-chezmoi apply
+chezmoi apply --source="$HOME/dev-env/dotfiles"
 
 # Push changes to your dotfiles repository
-chezmoi git push
+chezmoi git --source="$HOME/dev-env/dotfiles" push
 ```
 
 ### Managing Machine-Specific Differences
@@ -136,21 +136,21 @@ choco install chezmoi
 
 ```powershell
 # Initialize Chezmoi with your GitHub repository
-chezmoi init https://github.com/YOUR-USERNAME/dotfiles.git
+chezmoi init --source=~\dev-env\dotfiles https://github.com/YOUR-USERNAME/dotfiles.git
 
 # Apply configuration files
-chezmoi apply
+chezmoi apply --source=~\dev-env\dotfiles
 ```
 
 #### 3. Add Windows-Specific Files
 
 ```powershell
 # Add PowerShell profile
-chezmoi add $PROFILE
+chezmoi add --source=~\dev-env\dotfiles $PROFILE
 
 # Add other Windows config files
-chezmoi add ~\AppData\Roaming\Windows Terminal\settings.json
-chezmoi add ~\.gitconfig
+chezmoi add --source=~\dev-env\dotfiles ~\AppData\Roaming\Windows Terminal\settings.json
+chezmoi add --source=~\dev-env\dotfiles ~\.gitconfig
 ```
 
 #### 4. Handle OS-Specific Differences
@@ -171,12 +171,12 @@ Since both systems point to the same GitHub repository, you can keep them in syn
 
 ```powershell
 # In Windows PowerShell
-chezmoi update
+chezmoi update --source=~\dev-env\dotfiles
 ```
 
 ```bash
 # In WSL
-chezmoi update
+chezmoi update --source="$HOME/dev-env/dotfiles"
 ```
 
 This way, any changes you make to your configuration in either environment will be available in both!
@@ -190,7 +190,7 @@ After installation, you can update your environment by running:
 ~/dev-env/update.sh
 
 # Update dotfiles separately
-chezmoi update
+chezmoi update --source="$HOME/dev-env/dotfiles"
 ```
 
 ## License
