@@ -1786,13 +1786,13 @@ setup_github_info() {
             print_step "You need to authenticate with GitHub CLI..."
             echo -e "${YELLOW}Please follow the prompts to authenticate with GitHub...${NC}"
             
-            # Provide instructions for manual authentication with device code flow
-            echo -e "${BLUE}GitHub will provide a device code. Please visit:${NC}"
+            # Provide clear instructions for authentication
+            echo -e "${BLUE}You'll be asked to visit:${NC}"
             echo -e "${CYAN}https://github.com/login/device${NC}"
-            echo -e "${BLUE}and enter the code that will be displayed.${NC}\n"
+            echo -e "${BLUE}and enter the device code that GitHub CLI will provide.${NC}\n"
             
-            # Force device code flow authentication since browser auth won't work
-            gh auth login --hostname github.com --web --web-browser=none
+            # Use simple auth login without extra flags
+            gh auth login -h github.com
             
             if [ $? -ne 0 ]; then
                 print_error "Failed to authenticate with GitHub"
