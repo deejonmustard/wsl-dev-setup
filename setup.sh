@@ -124,19 +124,12 @@ install_core_deps() {
     
     sudo apt install -y curl wget git python3 python3-pip python3-venv unzip \
         build-essential file cmake ripgrep fd-find fzf tmux zsh \
-        jq bat htop wslu
+        jq bat htop
     
     if [ $? -ne 0 ]; then
         print_error "Failed to install core dependencies"
         print_warning "You may need to run 'sudo apt update' first"
         return 1
-    fi
-    
-    print_step "Testing wslu installation for Windows browser integration..."
-    if command_exists wslview; then
-        print_success "WSL utilities (wslu) installed successfully - Windows browser integration enabled"
-    else
-        print_warning "wslu installation may have failed - GitHub browser authentication might require manual steps"
     fi
     
     # Create symlinks for Debian-specific tool names if needed
@@ -1764,11 +1757,33 @@ setup_github_info() {
         
         # Install wslu for browser integration
         print_step "Installing WSL utilities (wslu) for browser integration..."
-        sudo apt install -y wslu
-        if [ $? -eq 0 ] && command_exists wslview; then
-            print_success "WSL utilities installed successfully - Windows browser integration enabled"
+        
+        # Check if wslu is already installed
+        if ! command_exists wslview; then
+            print_step "Adding Microsoft repository for WSL utilities..."
+            
+            # Install lsb-release if needed
+            sudo apt install -y lsb-release
+            
+            # Import Microsoft GPG key
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg
+            
+            # Add the repository
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/microsoft-debian-$(lsb_release -cs)-prod $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/microsoft.list > /dev/null
+            
+            # Update package lists
+            sudo apt update
+            
+            # Install wslu
+            sudo apt install -y wslu
+            
+            if [ $? -eq 0 ] && command_exists wslview; then
+                print_success "WSL utilities installed successfully - Windows browser integration enabled"
+            else
+                print_warning "wslu installation failed - GitHub browser authentication will require manual steps"
+            fi
         else
-            print_warning "wslu installation may have failed - GitHub browser authentication might require manual steps"
+            print_success "WSL utilities already installed - Windows browser integration enabled"
         fi
         
         # Check if GitHub CLI is installed
