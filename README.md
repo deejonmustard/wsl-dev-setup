@@ -16,6 +16,24 @@ A simple script to set up a beginner-friendly development environment for WSL De
 
 ## Quick Install
 
+Uninstall previous WSL Debian installation (if needed)
+ 
+```bash
+wsl --unregister Debian
+
+# List Local Distro Installs w Version:
+
+wsl -l -v
+
+# Install From Store (More Updates):
+ 
+wsl.exe --install -d Debian
+
+# Launch Debian:
+ 
+wsl.exe -d Debian
+```
+
 From a fresh Debian WSL installation, run:
 
 ```bash
