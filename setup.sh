@@ -1760,12 +1760,13 @@ setup_github_info() {
         sudo apt install -y gnupg curl wget ca-certificates lsb-release
         
         # Skip wslu installation as it's not critical and might not be available for Debian 12
-        print_step "Note: WSL browser integration might not be available in Debian 12"
-        print_warning "GitHub authentication will use device code flow instead of browser"
+        print_step "Note: WSL browser integration is not available in Debian 12"
         
         # Check if GitHub CLI is installed
         if ! command_exists gh; then
             print_step "Installing GitHub CLI..."
+            print_warning "GitHub authentication will use device code flow instead of browser"
+            print_step "You'll need to manually open a browser when prompted"
             
             # Add the GitHub CLI repository
             print_step "Adding GitHub CLI repository..."
