@@ -1755,20 +1755,20 @@ setup_github_info() {
     if [[ "$use_github_response" =~ ^[Yy]$ ]]; then
         USE_GITHUB=true
         
+        # Install core packages needed for repository setup
+        print_step "Installing required dependencies first..."
+        sudo apt install -y gnupg curl wget ca-certificates lsb-release
+        
         # Install wslu for browser integration
         print_step "Installing WSL utilities (wslu) for browser integration..."
         
         # Check if wslu is already installed
         if ! command_exists wslview; then
-            print_step "Installing required packages for repository setup..."
-            
-            # Install required packages first
-            sudo apt install -y lsb-release gnupg curl
-            
             print_step "Adding Microsoft repository for WSL utilities..."
             
-            # Import Microsoft GPG key
-            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg
+            # Import Microsoft GPG key using wget instead of curl
+            print_step "Importing Microsoft GPG key..."
+            wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /usr/share/keyrings/microsoft-archive-keyring.gpg > /dev/null
             
             # Add the repository
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/microsoft-debian-$(lsb_release -cs)-prod $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/microsoft.list > /dev/null
@@ -1792,14 +1792,9 @@ setup_github_info() {
         if ! command_exists gh; then
             print_step "Installing GitHub CLI..."
             
-            # Make sure we have gnupg for key imports
-            if ! command_exists gpg; then
-                print_step "Installing gnupg for GitHub CLI repository..."
-                sudo apt install -y gnupg
-            fi
-            
-            # First add the GitHub CLI repository
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            # Add the GitHub CLI repository
+            print_step "Adding GitHub CLI repository..."
+            wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
             sudo apt update
             sudo apt install -y gh
