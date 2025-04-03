@@ -888,6 +888,32 @@ setup_nodejs() {
         fi
     fi
     
+    # Make sure NVM is properly configured in .bashrc and tracked by chezmoi
+    print_step "Ensuring NVM configuration is in .bashrc and tracked by chezmoi..."
+    
+    # Check if NVM configuration is in .bashrc
+    if ! grep -q "export NVM_DIR=\"\$HOME/.nvm\"" "$HOME/.bashrc"; then
+        print_step "Adding NVM configuration to .bashrc..."
+        cat >> "$HOME/.bashrc" << 'EOL'
+
+# NVM configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+EOL
+    fi
+    
+    # Update .bashrc in chezmoi if it's already being managed
+    if chezmoi managed ~/.bashrc &>/dev/null; then
+        print_step "Updating .bashrc in chezmoi to include NVM configuration..."
+        chezmoi add ~/.bashrc --force
+        if [ $? -ne 0 ]; then
+            print_warning "Failed to update .bashrc in chezmoi"
+        else
+            print_success "Updated .bashrc in chezmoi with NVM configuration"
+        fi
+    fi
+    
     print_success "Node.js environment configured successfully"
     return 0
 }
@@ -1563,15 +1589,17 @@ install_neovim || exit 1
 setup_git_config || exit 1
 setup_zsh || exit 1
 
-# Step 4: Configure dotfiles with chezmoi
+# Step 4: Install Node.js before configuring bashrc
+setup_nodejs || exit 1
+
+# Step 5: Configure dotfiles with chezmoi
 setup_zshrc || exit 1
 setup_nvim_config || exit 1
 setup_tmux || exit 1
 setup_wsl_utilities || exit 1
 setup_bashrc_helper || exit 1
 
-# Step 5: Dev tools and documentation
-setup_nodejs || exit 1
+# Step 6: Dev tools and documentation
 setup_claude_code || exit 1
 create_claude_code_docs || exit 1
 create_chezmoi_docs || exit 1
