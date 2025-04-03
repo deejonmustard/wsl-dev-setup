@@ -68,6 +68,56 @@ ensure_dir() {
     return 0
 }
 
+# Function to safely add a file to chezmoi
+safe_add_to_chezmoi() {
+    local target_file="$1"
+    local description="${2:-file}"
+    local force="${3:-}"
+    
+    if [ ! -f "$target_file" ]; then
+        print_error "$description not found at $target_file"
+        return 1
+    fi
+    
+    print_step "Adding $description to chezmoi..."
+    if [ "$force" = "--force" ]; then
+        if ! chezmoi add --source="$CHEZMOI_SOURCE_DIR" --force "$target_file"; then
+            print_error "Failed to add $description to chezmoi"
+            return 1
+        fi
+    else
+        if ! chezmoi add --source="$CHEZMOI_SOURCE_DIR" "$target_file"; then
+            print_error "Failed to add $description to chezmoi"
+            return 1
+        fi
+    fi
+    
+    print_success "$description added to chezmoi successfully"
+    return 0
+}
+
+# Initialize NVM environment
+init_nvm() {
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+}
+
+# Backup a file if it exists
+backup_file() {
+    local file_path="$1"
+    if [ -f "$file_path" ]; then
+        local backup_path="${file_path}.backup.$(date +%Y%m%d%H%M%S)"
+        print_step "Backing up existing $(basename "$file_path") file..."
+        mv "$file_path" "$backup_path"
+        print_step "Backed up to $backup_path"
+        return 0
+    fi
+    return 1
+}
+
+# --- Main functions ---
+
 # Create the necessary directory structure
 setup_workspace() {
     print_header "Creating Workspace Structure"
@@ -680,10 +730,7 @@ EOL
     print_step "Adding zshrc to chezmoi..."
     
     # Check if ~/.zshrc already exists and backup if needed
-    if [ -f "$HOME/.zshrc" ]; then
-        print_step "Backing up existing .zshrc file..."
-        mv "$HOME/.zshrc" "$HOME/.zshrc.backup.$(date +%Y%m%d%H%M%S)"
-    fi
+    backup_file "$HOME/.zshrc"
     
     # Copy our template to home directory first
     cp "$TEMP_ZSHRC" "$HOME/.zshrc"
@@ -772,10 +819,7 @@ EOL
     fi
     
     # Backup existing file if needed
-    if [ -f "$HOME/.tmux.conf" ]; then
-        print_step "Backing up existing .tmux.conf file..."
-        mv "$HOME/.tmux.conf" "$HOME/.tmux.conf.backup.$(date +%Y%m%d%H%M%S)"
-    fi
+    backup_file "$HOME/.tmux.conf"
     
     # Copy our template to home directory
     cp "$TEMP_TMUX" "$HOME/.tmux.conf"
@@ -1063,78 +1107,8 @@ setup_dotfiles_repo() {
     if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
         print_step "Dotfiles repository already initialized"
         
-        # If GitHub CLI is available, offer to connect to GitHub
-        if $USE_GITHUB && command_exists gh; then
-            echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n) [y]${NC}"
-            read -r setup_remote
-            setup_remote=${setup_remote:-y}  # Default to yes
-            
-            if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
-                cd "$CHEZMOI_SOURCE_DIR" || return 1
-                
-                # Ask if repository should be public
-                echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
-                read -r repo_public
-                is_public="false"
-                if [[ "$repo_public" =~ ^[Yy]$ ]]; then
-                    is_public="true"
-                fi
-                
-                # Create and connect to GitHub repository
-                create_github_repository "dotfiles" "My dotfiles managed by Chezmoi" "$is_public"
-                
-                # Try pushing to GitHub
-                print_step "Pushing dotfiles to GitHub..."
-                git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
-                if [ $? -eq 0 ]; then
-                    print_success "Dotfiles pushed to GitHub successfully"
-                    GITHUB_REPO_CREATED=true
-                else
-                    print_warning "Failed to push to GitHub. You can try again later with:"
-                    print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
-                fi
-            fi
-        else
-            # Original behavior for non-GitHub CLI workflow
-            echo -e "\n${BLUE}Do you want to connect your dotfiles to a GitHub repository? (y/n) [y]${NC}"
-            read -r setup_remote
-            setup_remote=${setup_remote:-y}  # Default to yes
-            
-            if [[ "$setup_remote" =~ ^[Yy]$ ]]; then
-                echo -e "${BLUE}Enter your GitHub username (or full repository URL):${NC}"
-                read -r repo_url
-                
-                if [ -n "$repo_url" ]; then
-                    # Check if it's just a username or a full URL
-                    if [[ "$repo_url" != *"/"* && "$repo_url" != "http"* ]]; then
-                        repo_url="https://github.com/$repo_url/dotfiles.git"
-                    fi
-                    
-                    print_step "Setting up remote origin to $repo_url"
-                    cd "$CHEZMOI_SOURCE_DIR" || return 1
-                    
-                    # Check if remote already exists
-                    if git remote | grep -q "origin"; then
-                        print_step "Remote 'origin' already exists, updating URL..."
-                        git remote set-url origin "$repo_url"
-                    else
-                        git remote add origin "$repo_url"
-                    fi
-                    
-                    print_step "Pushing dotfiles to remote repository..."
-                    print_warning "This will fail if the repository doesn't exist. Create it on GitHub first if needed."
-                    
-                    git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
-                    if [ $? -eq 0 ]; then
-                        print_success "Dotfiles pushed to remote repository"
-                        GITHUB_REPO_CREATED=true
-                    else
-                        print_warning "Failed to push to remote. The repository may not exist or you don't have permissions."
-                        print_step "To push later, run: cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
-                    fi
-                fi
-            fi
-        fi
+        # Setup GitHub repository
+        setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
     else
         print_step "Initializing dotfiles repository"
         
@@ -1146,88 +1120,70 @@ setup_dotfiles_repo() {
         git add .
         git commit -m "Initial dotfiles commit"
         
-        # Always attempt to push to GitHub 
-        if $USE_GITHUB && command_exists gh; then
-            echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n) [y]${NC}"
-            read -r push_to_github
-            push_to_github=${push_to_github:-y}  # Default to yes
-            
-            if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
-                # Ask if repository should be public
-                echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
-                read -r repo_public
-                is_public="false"
-                if [[ "$repo_public" =~ ^[Yy]$ ]]; then
-                    is_public="true"
-                fi
-                
-                # Create and connect to GitHub repository
-                create_github_repository "dotfiles" "My dotfiles managed by Chezmoi" "$is_public"
-                
-                # Try pushing to GitHub
-                print_step "Pushing to GitHub..."
-                git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
-                if [ $? -eq 0 ]; then
-                    print_success "Successfully pushed dotfiles to GitHub"
-                    GITHUB_REPO_CREATED=true
-                else 
-                    print_warning "Failed to push to GitHub. You can try again later with:"
-                    print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
-                fi
-            fi
-        else
-            # Original behavior for non-GitHub CLI workflow
-            echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n) [y]${NC}"
-            read -r push_to_github
-            push_to_github=${push_to_github:-y}  # Default to yes
-            
-            if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
-                echo -e "${BLUE}Enter your GitHub username:${NC}"
-                read -r github_username
-                
-                if [ -n "$github_username" ]; then
-                    repo_url="https://github.com/$github_username/dotfiles.git"
-                    
-                    print_step "Setting up remote origin to $repo_url"
-                    git remote add origin "$repo_url"
-                    
-                    print_step "To push your dotfiles to GitHub:"
-                    print_warning "1. Create a repository named 'dotfiles' on GitHub"
-                    print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
-                fi
-            fi
-        fi
+        # Setup GitHub repository
+        setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
     fi
     
     print_success "Dotfiles repository setup completed"
     return 0
 }
 
-# Function to safely add a file to chezmoi
-safe_add_to_chezmoi() {
-    local target_file="$1"
-    local description="${2:-file}"
-    local force="${3:-}"
+# Setup GitHub repository
+setup_github_repository() {
+    local repo_name="$1"
+    local description="$2"
     
-    if [ ! -f "$target_file" ]; then
-        print_error "$description not found at $target_file"
+    if ! $USE_GITHUB; then
+        print_warning "GitHub integration is disabled. Skipping repository creation."
         return 1
     fi
     
-    print_step "Adding $description to chezmoi..."
-    if [ "$force" = "--force" ]; then
-        if ! chezmoi add --source="$CHEZMOI_SOURCE_DIR" --force "$target_file"; then
-            print_error "Failed to add $description to chezmoi"
-            return 1
-        fi
-    else
-        if ! chezmoi add --source="$CHEZMOI_SOURCE_DIR" "$target_file"; then
-            print_error "Failed to add $description to chezmoi"
-            return 1
+    echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n) [y]${NC}"
+    read -r push_to_github
+    push_to_github=${push_to_github:-y}  # Default to yes
+    
+    if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
+        # GitHub CLI workflow
+        if command_exists gh; then
+            # Ask if repository should be public
+            echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
+            read -r repo_public
+            is_public="false"
+            if [[ "$repo_public" =~ ^[Yy]$ ]]; then
+                is_public="true"
+            fi
+            
+            # Create and connect to GitHub repository
+            create_github_repository "$repo_name" "$description" "$is_public"
+            
+            # Try pushing to GitHub
+            print_step "Pushing to GitHub..."
+            git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
+            if [ $? -eq 0 ]; then
+                print_success "Successfully pushed to GitHub"
+                GITHUB_REPO_CREATED=true
+            else 
+                print_warning "Failed to push to GitHub. You can try again later with:"
+                print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
+            fi
+        else
+            # Manual GitHub workflow
+            echo -e "${BLUE}Enter your GitHub username:${NC}"
+            read -r github_username
+            
+            if [ -n "$github_username" ]; then
+                repo_url="https://github.com/$github_username/$repo_name.git"
+                
+                print_step "Setting up remote origin to $repo_url"
+                git remote add origin "$repo_url"
+                
+                print_step "To push your dotfiles to GitHub:"
+                print_warning "1. Create a repository named '$repo_name' on GitHub"
+                print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
+            fi
         fi
     fi
     
-    print_success "$description added to chezmoi successfully"
     return 0
 }
 
@@ -1322,8 +1278,7 @@ setup_nodejs() {
         fi
         
         # Initialize NVM in current shell
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        init_nvm
         
         print_step "Installing latest LTS version of Node.js..."
         nvm install --lts
@@ -1339,8 +1294,7 @@ setup_nodejs() {
     else
         print_step "NVM is already installed"
         # Initialize NVM in current shell anyway
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        init_nvm
         
         # Check if Node.js is installed
         if ! command_exists node; then
@@ -1394,8 +1348,7 @@ setup_claude_code() {
     print_step "Checking Node.js installation..."
     
     # Source NVM to make sure we have Node.js available
-    export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    init_nvm
     
     # Verify Node.js is correctly installed
     if ! command_exists node; then
@@ -1425,10 +1378,12 @@ setup_claude_code() {
     
     # Check for Claude Code config directory
     CLAUDE_CONFIG_DIR="$HOME/.config/claude-code"
-    if [ -d "$CLAUDE_CONFIG_DIR" ]; then
+    # Create config directory if it doesn't exist
+    if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
+        mkdir -p "$CLAUDE_CONFIG_DIR"
     fi
     
-    print_success "Component documentation created successfully"
+    print_success "Claude Code installed successfully"
     return 0
 }
 
