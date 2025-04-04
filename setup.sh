@@ -1116,9 +1116,11 @@ setup_dotfiles_repo() {
         cd "$CHEZMOI_SOURCE_DIR" || return 1
         git init
         
-        # Create initial commit with all files
+        # Add all files
         git add .
-        git commit -m "Initial dotfiles commit"
+        
+        # Create initial commit with all files
+        git commit -m "batman"
         
         # Setup GitHub repository
         setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
@@ -1138,6 +1140,9 @@ setup_github_repository() {
         return 1
     fi
     
+    # Change directory to chezmoi source directory
+    cd "$CHEZMOI_SOURCE_DIR" || return 1
+    
     echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n) [y]${NC}"
     read -r push_to_github
     push_to_github=${push_to_github:-y}  # Default to yes
@@ -1145,6 +1150,16 @@ setup_github_repository() {
     if [[ "$push_to_github" =~ ^[Yy]$ ]]; then
         # GitHub CLI workflow
         if command_exists gh; then
+            # Check if GitHub CLI is authenticated
+            if ! gh auth status &>/dev/null; then
+                print_warning "GitHub CLI is not authenticated. Please authenticate first."
+                gh auth login
+                if [ $? -ne 0 ]; then
+                    print_error "Failed to authenticate with GitHub. Skipping repository creation."
+                    return 1
+                fi
+            fi
+            
             # Ask if repository should be public
             echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
             read -r repo_public
@@ -1154,17 +1169,42 @@ setup_github_repository() {
             fi
             
             # Create and connect to GitHub repository
-            create_github_repository "$repo_name" "$description" "$is_public"
+            print_step "Creating GitHub repository: $repo_name..."
+            
+            # Check if repository already exists
+            if gh repo view "$GITHUB_USERNAME/$repo_name" &>/dev/null; then
+                print_step "Repository $GITHUB_USERNAME/$repo_name already exists"
+            else
+                # Create the repository
+                if [ "$is_public" = "true" ]; then
+                    gh repo create "$repo_name" --description "$description" --public --source=. --remote=origin
+                else
+                    gh repo create "$repo_name" --description "$description" --private --source=. --remote=origin
+                fi
+                
+                if [ $? -ne 0 ]; then
+                    print_error "Failed to create GitHub repository"
+                    return 1
+                fi
+                
+                print_success "Repository created: https://github.com/$GITHUB_USERNAME/$repo_name"
+            fi
+            
+            # Check if remote already exists
+            if ! git remote | grep -q "origin"; then
+                git remote add origin "https://github.com/$GITHUB_USERNAME/$repo_name.git"
+            fi
             
             # Try pushing to GitHub
             print_step "Pushing to GitHub..."
-            git push -u origin main 2>/dev/null || git push -u origin master 2>/dev/null
+            git push -u origin master 2>/dev/null || git push -u origin main 2>/dev/null
             if [ $? -eq 0 ]; then
                 print_success "Successfully pushed to GitHub"
                 GITHUB_REPO_CREATED=true
             else 
                 print_warning "Failed to push to GitHub. You can try again later with:"
-                print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
+                print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin master"
+                print_warning "You may need to create the repository manually at https://github.com/new"
             fi
         else
             # Manual GitHub workflow
@@ -1175,11 +1215,16 @@ setup_github_repository() {
                 repo_url="https://github.com/$github_username/$repo_name.git"
                 
                 print_step "Setting up remote origin to $repo_url"
-                git remote add origin "$repo_url"
+                # Check if remote already exists
+                if git remote | grep -q "origin"; then
+                    git remote set-url origin "$repo_url"
+                else
+                    git remote add origin "$repo_url"
+                fi
                 
                 print_step "To push your dotfiles to GitHub:"
                 print_warning "1. Create a repository named '$repo_name' on GitHub"
-                print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin main"
+                print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin master"
             fi
         fi
     fi
@@ -1775,8 +1820,9 @@ if [ -d "$HOME/.oh-my-zsh" ]; then
     echo -e "${BLUE}→ Updating Oh My Zsh...${NC}"
     cd "$HOME" || exit 1
     
+    # Run the upgrade directly using bash to avoid 'local' command not in function error
     if [ -f "$HOME/.oh-my-zsh/tools/upgrade.sh" ]; then
-        sh "$HOME/.oh-my-zsh/tools/upgrade.sh"
+        bash "$HOME/.oh-my-zsh/tools/upgrade.sh"
     fi
     
     echo -e "${GREEN}✓ Oh My Zsh updated${NC}"
@@ -1784,14 +1830,10 @@ fi
 
 # Update Neovim plugins if Kickstart is installed
 if [ -d "$HOME/.config/nvim" ]; then
-    echo -e "${BLUE}→ Updating Neovim plugins...${NC}"
-    if [ -f "$HOME/.config/nvim/lua/kickstart/plugins/init.lua" ]; then
-        nvim --headless "+Lazy update" +qa
-        echo -e "${GREEN}✓ Neovim plugins updated${NC}"
-    else
-        echo -e "${YELLOW}! Non-standard Neovim configuration detected${NC}"
-        echo -e "${YELLOW}! Please update plugins manually${NC}"
-    fi
+    echo -e "${BLUE}→ Checking Neovim setup...${NC}"
+    # Skip the update since we're using Kickstart
+    echo -e "${YELLOW}! Using Kickstart Neovim - plugin updates should be handled within Neovim${NC}"
+    echo -e "${YELLOW}! To update plugins, open Neovim and run: :Lazy update${NC}"
 fi
 
 # Update NVM if installed
@@ -1801,10 +1843,14 @@ if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
     
-    # Update NVM itself
+    # Update NVM itself - with less verbosity
+    echo -e "${BLUE}→ Checking for NVM updates...${NC}"
     (
-        cd "$NVM_DIR" && git fetch --tags origin && \
-        git checkout `git describe --abbrev=0 --tags --match "v[0-9]*" $(git rev-list --tags --max-count=1)`
+        cd "$NVM_DIR" && \
+        git fetch --quiet --tags origin && \
+        LATEST_TAG=$(git describe --abbrev=0 --tags --match "v[0-9]*" $(git rev-list --tags --max-count=1)) && \
+        echo -e "${BLUE}→ Latest NVM version: $LATEST_TAG${NC}" && \
+        git checkout --quiet "$LATEST_TAG"
     ) && \. "$NVM_DIR/nvm.sh"
     
     # Check for Node.js LTS updates
@@ -1834,7 +1880,28 @@ if command -v chezmoi > /dev/null; then
         # Check for remote updates if git configured
         if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
             echo -e "${BLUE}→ Checking for remote dotfile updates...${NC}"
-            chezmoi update --source="$CHEZMOI_SOURCE_DIR"
+            
+            # Check if remote is properly set up
+            cd "$CHEZMOI_SOURCE_DIR" || exit 1
+            if git remote -v | grep -q origin; then
+                # Check if we have a tracking branch set up
+                if git symbolic-ref -q HEAD &>/dev/null; then
+                    BRANCH=$(git symbolic-ref --short HEAD)
+                    if git config --get "branch.$BRANCH.remote" &>/dev/null; then
+                        # Pull updates
+                        git pull --quiet
+                        echo -e "${GREEN}✓ Dotfiles updated from remote${NC}"
+                    else
+                        echo -e "${YELLOW}! No tracking branch configured. To set it up:${NC}"
+                        echo -e "${YELLOW}! cd $CHEZMOI_SOURCE_DIR && git branch --set-upstream-to=origin/$BRANCH $BRANCH${NC}"
+                    fi
+                fi
+            else
+                echo -e "${YELLOW}! No remote repository configured for dotfiles${NC}"
+            fi
+            
+            # Apply any updates
+            chezmoi apply --source="$CHEZMOI_SOURCE_DIR"
         fi
         
         echo -e "${GREEN}✓ Chezmoi and dotfiles updated${NC}"
