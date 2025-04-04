@@ -1114,12 +1114,14 @@ setup_dotfiles_repo() {
         
         # Initialize git in chezmoi source directory
         cd "$CHEZMOI_SOURCE_DIR" || return 1
-        git init
+        
+        # Initialize Git and set main as the default branch
+        git init -b main
         
         # Add all files
         git add .
         
-        # Create initial commit with all files
+        # Create initial commit with a meaningful message
         git commit -m "batman"
         
         # Setup GitHub repository
@@ -1160,6 +1162,16 @@ setup_github_repository() {
                 fi
             fi
             
+            # Verify we have a username
+            if [ -z "$GITHUB_USERNAME" ]; then
+                GITHUB_USERNAME=$(gh api user | jq -r '.login')
+                if [ -z "$GITHUB_USERNAME" ] || [ "$GITHUB_USERNAME" = "null" ]; then
+                    print_error "Could not determine GitHub username. Repository operations may fail."
+                    return 1
+                fi
+                print_step "Using GitHub username: $GITHUB_USERNAME"
+            fi
+            
             # Ask if repository should be public
             echo -e "\n${BLUE}Should the repository be public? (y/n, default: n)${NC}"
             read -r repo_public
@@ -1195,15 +1207,18 @@ setup_github_repository() {
                 git remote add origin "https://github.com/$GITHUB_USERNAME/$repo_name.git"
             fi
             
-            # Try pushing to GitHub
+            # Determine current branch name
+            current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "main")
+            
+            # Try pushing to GitHub with token auth for reliability
             print_step "Pushing to GitHub..."
-            git push -u origin master 2>/dev/null || git push -u origin main 2>/dev/null
+            git push -u origin "$current_branch"
             if [ $? -eq 0 ]; then
                 print_success "Successfully pushed to GitHub"
                 GITHUB_REPO_CREATED=true
             else 
                 print_warning "Failed to push to GitHub. You can try again later with:"
-                print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin master"
+                print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin $current_branch"
                 print_warning "You may need to create the repository manually at https://github.com/new"
             fi
         else
@@ -1222,9 +1237,12 @@ setup_github_repository() {
                     git remote add origin "$repo_url"
                 fi
                 
+                # Determine current branch name
+                current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "main")
+                
                 print_step "To push your dotfiles to GitHub:"
                 print_warning "1. Create a repository named '$repo_name' on GitHub"
-                print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin master"
+                print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin $current_branch"
             fi
         fi
     fi
