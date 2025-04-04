@@ -1107,6 +1107,12 @@ setup_dotfiles_repo() {
     if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
         print_step "Dotfiles repository already initialized"
         
+        # Change to the source directory
+        cd "$CHEZMOI_SOURCE_DIR" || return 1
+        
+        # Make sure we're on the main branch
+        git checkout main 2>/dev/null || git checkout -b main
+        
         # Setup GitHub repository
         setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
     else
