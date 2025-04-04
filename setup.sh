@@ -1113,6 +1113,14 @@ setup_dotfiles_repo() {
         # Make sure we're on the main branch
         git checkout main 2>/dev/null || git checkout -b main
         
+        # Check if the branch has any commits
+        if ! git rev-parse --verify main >/dev/null 2>&1; then
+            # If not, stage all files and make an initial commit
+            print_step "Creating initial commit on main branch..."
+            git add .
+            git commit -m "batman"
+        fi
+        
         # Setup GitHub repository
         setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
     else
