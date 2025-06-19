@@ -15,7 +15,7 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.0.2"
+SCRIPT_VERSION="0.0.3"
 SETUP_DIR="$HOME/dev"
 CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 GITHUB_USERNAME=""
@@ -86,7 +86,7 @@ bootstrap_arch() {
         
         # Update system first
         print_step "Updating system packages..."
-        pacman -Syu --noconfirm
+        pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
         
         # Generate locale to fix perl warnings
         print_step "Generating locale..."
@@ -97,8 +97,8 @@ bootstrap_arch() {
         # Install sudo if not present
         if ! command_exists sudo; then
             print_step "Installing sudo..."
-            pacman -S --noconfirm sudo
-            if [ $? -ne 0 ]; then
+            pacman -S --noconfirm --needed sudo 2>&1 | grep -v "warning: insufficient columns"
+            if [ ${PIPESTATUS[0]} -ne 0 ]; then
                 print_error "Failed to install sudo"
                 exit 1
             fi
@@ -275,8 +275,9 @@ setup_workspace() {
 update_system() {
     print_header "Updating System Packages"
     print_step "Updating package database..."
-    run_elevated pacman -Syu --noconfirm
-    if [ $? -ne 0 ]; then
+    # Force non-interactive mode and suppress prompts
+    run_elevated pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
         print_error "Failed to update system packages"
         return 1
     fi
@@ -290,11 +291,14 @@ install_core_deps() {
     print_header "Installing Core Dependencies"
     print_step "Installing essential packages..."
     
-    run_elevated pacman -S --noconfirm curl wget git python python-pip python-virtualenv unzip \
-        base-devel file cmake ripgrep fd fzf tmux zsh \
-        jq bat htop github-cli
+    # Export COLUMNS to help pacman format output better
+    export COLUMNS=120
     
-    if [ $? -ne 0 ]; then
+    run_elevated pacman -S --noconfirm --needed curl wget git python python-pip python-virtualenv unzip \
+        base-devel file cmake ripgrep fd fzf tmux zsh \
+        jq bat htop github-cli 2>&1 | grep -v "warning: insufficient columns"
+    
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
         print_error "Failed to install core dependencies"
         print_warning "You may need to run 'sudo pacman -Syu' first"
         return 1
@@ -314,8 +318,8 @@ install_fastfetch() {
     print_header "Installing Fastfetch"
     if ! command_exists fastfetch; then
         print_step "Installing Fastfetch (modern neofetch alternative)..."
-        run_elevated pacman -S --noconfirm fastfetch
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed fastfetch 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install Fastfetch"
             return 1
         fi
@@ -344,8 +348,8 @@ install_neovim() {
         print_step "Installing Neovim from official Arch repository..."
         
         # Install the latest Neovim from Arch repos
-        run_elevated pacman -S --noconfirm neovim
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed neovim 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install Neovim"
             return 1
         fi
@@ -466,8 +470,8 @@ setup_ansible() {
     print_header "Setting up Ansible"
     if ! command_exists ansible; then
         print_step "Installing Ansible..."
-        run_elevated pacman -S --noconfirm ansible
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed ansible 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install Ansible"
             return 1
         fi
@@ -649,8 +653,8 @@ setup_zsh() {
     # Install zsh if not already installed
     if ! command_exists zsh; then
         print_step "Installing Zsh..."
-        run_elevated pacman -S --noconfirm zsh
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed zsh 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install Zsh"
             return 1
         fi
@@ -834,8 +838,8 @@ setup_tmux() {
     # Check if tmux is installed
     if ! command_exists tmux; then
         print_step "Installing tmux..."
-        run_elevated pacman -S --noconfirm tmux
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed tmux 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install tmux"
             return 1
         fi
@@ -1152,8 +1156,8 @@ setup_dotfiles_repo() {
     # Check if git is available
     if ! command_exists git; then
         print_warning "Git is not installed. Installing Git..."
-        run_elevated pacman -S --noconfirm git
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed git 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install Git"
             return 1
         fi
@@ -1177,6 +1181,11 @@ setup_dotfiles_repo() {
             print_error "Git identity not configured. Repository operations may fail."
             return 1
         fi
+    fi
+    
+    # Set default branch to main to avoid warnings
+    if ! git config --get init.defaultBranch > /dev/null; then
+        git config --global init.defaultBranch main
     fi
     
     # Check if we already have a dotfiles repository
@@ -1347,8 +1356,8 @@ setup_git_config() {
     # Check if Git is installed
     if ! command_exists git; then
         print_warning "Git is not installed. Installing Git..."
-        run_elevated pacman -S --noconfirm git
-        if [ $? -ne 0 ]; then
+        run_elevated pacman -S --noconfirm --needed git 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             print_error "Failed to install Git"
             return 1
         fi
@@ -1420,7 +1429,7 @@ setup_nodejs() {
     if [ ! -d "$HOME/.nvm" ]; then
         print_step "Installing NVM (Node Version Manager)..."
         # Install development tools needed for building Node.js
-        run_elevated pacman -S --noconfirm base-devel openssl
+        run_elevated pacman -S --noconfirm --needed base-devel openssl 2>&1 | grep -v "warning: insufficient columns"
         
         # Install NVM
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
@@ -1495,7 +1504,7 @@ EOL
 
 # Setup Claude Code from Anthropic with chezmoi integration
 setup_claude_code() {
-    print_header "Installing Claude Code with Chezmoi integration"
+    print_header "Installing Claude Code (OPTIONAL - May take time)"
     
     # First ensure Node.js is properly set up
     print_step "Checking Node.js installation..."
@@ -1520,13 +1529,32 @@ setup_claude_code() {
     print_step "Setting npm config for WSL compatibility..."
     npm config set os linux
     
-    # Install Claude Code
-    print_step "Installing Claude Code..."
-    npm install -g @anthropic-ai/claude-code --no-os-check
-    if [ $? -ne 0 ]; then
-        print_error "Failed to install Claude Code"
-        print_warning "This may be due to internet connectivity or npm configuration issues"
-        return 1
+    # Check if claude-code package exists first
+    print_step "Checking if Claude Code is available..."
+    if ! npm view @anthropic-ai/claude-code &>/dev/null; then
+        print_warning "Claude Code package not found in npm registry"
+        print_warning "This might be a private package or require authentication"
+        print_warning "Skipping Claude Code installation..."
+        return 0
+    fi
+    
+    # Install Claude Code with timeout
+    print_step "Installing Claude Code (this may take a few minutes)..."
+    print_warning "If this hangs, press Ctrl+C to skip and continue with the rest of the setup"
+    
+    # Try installation with a timeout
+    timeout 120 npm install -g @anthropic-ai/claude-code --no-os-check 2>&1
+    local result=$?
+    
+    if [ $result -eq 124 ]; then
+        print_warning "Claude Code installation timed out after 2 minutes"
+        print_warning "You can try installing it manually later with: npm install -g @anthropic-ai/claude-code"
+        return 0
+    elif [ $result -ne 0 ]; then
+        print_warning "Failed to install Claude Code"
+        print_warning "This is optional and won't affect the rest of your setup"
+        print_warning "You can try installing it manually later"
+        return 0
     fi
     
     # Check for Claude Code config directory
@@ -1907,8 +1935,8 @@ echo -e "${CYAN}==== WSL Development Environment Update ====${NC}"
 echo -e "${BLUE}→ Updating system packages...${NC}"
 
 # Update system packages
-$SUDO pacman -Syu --noconfirm
-if [ $? -ne 0 ]; then
+$SUDO pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
     echo -e "${RED}✗ Failed to update system packages${NC}"
     exit 1
 fi
@@ -2045,7 +2073,9 @@ display_completion_message() {
     echo -e "• Zsh (shell): ${GREEN}zsh${NC}"
     echo -e "• Chezmoi (dotfile manager): ${GREEN}chezmoi${NC}"
     echo -e "• Node.js (JavaScript runtime): ${GREEN}node${NC}"
-    echo -e "• Claude Code (AI assistant): ${GREEN}claude${NC}"
+    if command_exists claude; then
+        echo -e "• Claude Code (AI assistant): ${GREEN}claude${NC}"
+    fi
     
     # Show quick reference and documentation location
     echo -e "\n${CYAN}Documentation:${NC}"
@@ -2097,8 +2127,8 @@ setup_wsl_utilities || exit 1
 setup_bashrc_helper || exit 1
 
 # Step 6: Dev tools and documentation
-setup_claude_code || exit 1
-create_claude_code_docs || exit 1
+setup_claude_code || print_warning "Claude Code installation failed, continuing..."
+create_claude_code_docs || print_warning "Claude Code docs creation failed, continuing..."
 create_chezmoi_docs || exit 1
 create_component_docs || exit 1
 create_update_script || exit 1

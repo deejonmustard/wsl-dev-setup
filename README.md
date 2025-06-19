@@ -11,7 +11,7 @@ A simple script to set up a beginner-friendly development environment for WSL Ar
 - Tmux for terminal multiplexer
 - Chezmoi for dotfile management across Windows and WSL
 - Node.js via NVM
-- Claude Code AI assistant
+- Claude Code AI assistant (optional)
 - Core development tools and utilities
 - **Seamless GitHub integration** via GitHub CLI
 - **Organized directory structure** with configuration in ~/dev and dotfiles in ~/dotfiles
@@ -64,7 +64,7 @@ If you create a new user, you'll need to:
 - **Zsh**: Enhanced shell with Oh My Zsh and plugins
 - **Chezmoi**: Dotfile manager to sync configs between WSL and Windows
 - **NVM**: Node Version Manager for JavaScript development
-- **Claude Code**: AI assistant for coding
+- **Claude Code**: AI assistant for coding (optional - may require manual installation)
 - **WSL Utilities**: Helper scripts for Windows integration
 - **GitHub CLI**: Seamless dotfiles repository management
 - **Fastfetch**: Modern system information tool (replaces the discontinued neofetch)
@@ -222,6 +222,11 @@ This setup is optimized for Arch Linux on WSL and uses:
 - Arch-specific package names (e.g., `fd` instead of `fd-find`)
 - Base development tools from `base-devel` package group
 - Automatic bootstrap process for fresh installations
+
+## Known Issues
+
+- **Claude Code Installation**: The npm package `@anthropic-ai/claude-code` might not be available in the public npm registry or may require authentication. The script will skip this installation if it fails. You can try installing it manually later if needed.
+- **Terminal Width Warnings**: You might see "insufficient columns available for table display" warnings from pacman. These are cosmetic and don't affect functionality.
 
 ## License
 
