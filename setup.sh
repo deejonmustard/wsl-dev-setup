@@ -15,7 +15,7 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.0.4"
+SCRIPT_VERSION="0.0.3"
 SETUP_DIR="$HOME/dev"
 CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 GITHUB_USERNAME=""
