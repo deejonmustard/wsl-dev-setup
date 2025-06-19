@@ -2,7 +2,7 @@
 
 # ===================================
 # WSL Development Environment Setup
-# A beginner-friendly setup for WSL Debian
+# A beginner-friendly setup for WSL Arch Linux
 # ===================================
 
 # --- Color definitions for output formatting ---
@@ -15,10 +15,9 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.3.2"
-NVIM_VERSION="0.10.0"
-SETUP_DIR="$HOME/dev-env"
-CHEZMOI_SOURCE_DIR="$HOME/dev-env/dotfiles"
+SCRIPT_VERSION="0.0.1"
+SETUP_DIR="$HOME/dev"
+CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 GITHUB_USERNAME=""
 GITHUB_TOKEN=""
 USE_GITHUB=false
@@ -124,24 +123,26 @@ setup_workspace() {
     print_step "Setting up directory structure..."
 
     # Main directory structure
-    ensure_dir ~/dev-env || return 1
+    ensure_dir ~/dev || return 1
     ensure_dir ~/.local/bin || return 1
     ensure_dir ~/bin || return 1
-    ensure_dir ~/dev || return 1
 
     # Create projects directory
-    ensure_dir ~/dev-env/projects || return 1
+    ensure_dir ~/dev/projects || return 1
     
     # Create config directories
-    ensure_dir ~/dev-env/configs/nvim/custom || return 1
-    ensure_dir ~/dev-env/configs/zsh || return 1
-    ensure_dir ~/dev-env/configs/tmux || return 1
-    ensure_dir ~/dev-env/configs/wsl || return 1
-    ensure_dir ~/dev-env/configs/git || return 1
-    ensure_dir ~/dev-env/bin || return 1
-    ensure_dir ~/dev-env/docs || return 1
+    ensure_dir ~/dev/configs/nvim/custom || return 1
+    ensure_dir ~/dev/configs/zsh || return 1
+    ensure_dir ~/dev/configs/tmux || return 1
+    ensure_dir ~/dev/configs/wsl || return 1
+    ensure_dir ~/dev/configs/git || return 1
+    ensure_dir ~/dev/bin || return 1
+    ensure_dir ~/dev/docs || return 1
 
-    SETUP_DIR="$HOME/dev-env"
+    # Create dotfiles directory in home
+    ensure_dir ~/dotfiles || return 1
+
+    SETUP_DIR="$HOME/dev"
     cd "$SETUP_DIR" || { 
         print_error "Failed to change directory to $SETUP_DIR"
         return 1
@@ -154,17 +155,10 @@ setup_workspace() {
 # Update system packages
 update_system() {
     print_header "Updating System Packages"
-    print_step "Updating package lists..."
-    sudo apt update
+    print_step "Updating package database..."
+    sudo pacman -Syu --noconfirm
     if [ $? -ne 0 ]; then
-        print_error "Failed to update package lists"
-        return 1
-    fi
-
-    print_step "Upgrading packages..."
-    sudo apt upgrade -y
-    if [ $? -ne 0 ]; then
-        print_error "Failed to upgrade packages"
+        print_error "Failed to update system packages"
         return 1
     fi
     
@@ -177,25 +171,14 @@ install_core_deps() {
     print_header "Installing Core Dependencies"
     print_step "Installing essential packages..."
     
-    sudo apt install -y curl wget git python3 python3-pip python3-venv unzip \
-        build-essential file cmake ripgrep fd-find fzf tmux zsh \
-        jq bat htop
+    sudo pacman -S --noconfirm curl wget git python python-pip python-virtualenv unzip \
+        base-devel file cmake ripgrep fd fzf tmux zsh \
+        jq bat htop github-cli
     
     if [ $? -ne 0 ]; then
         print_error "Failed to install core dependencies"
-        print_warning "You may need to run 'sudo apt update' first"
+        print_warning "You may need to run 'sudo pacman -Syu' first"
         return 1
-    fi
-    
-    # Create symlinks for Debian-specific tool names if needed
-    if [ -f /usr/bin/fdfind ] && [ ! -f ~/.local/bin/fd ]; then
-        mkdir -p ~/.local/bin
-        ln -sf /usr/bin/fdfind ~/.local/bin/fd
-    fi
-    
-    if [ -f /usr/bin/batcat ] && [ ! -f ~/.local/bin/bat ]; then
-        mkdir -p ~/.local/bin
-        ln -sf /usr/bin/batcat ~/.local/bin/bat
     fi
     
     # Add local bin to PATH in bashrc if not already there
@@ -212,7 +195,7 @@ install_neofetch() {
     print_header "Installing Neofetch"
     if ! command_exists neofetch || ! [ -f "/usr/bin/neofetch" ]; then
         print_step "Installing Neofetch..."
-        sudo apt install -y neofetch
+        sudo pacman -S --noconfirm neofetch
         if [ $? -ne 0 ]; then
             print_error "Failed to install Neofetch"
             return 1
@@ -239,72 +222,17 @@ install_neofetch() {
 install_neovim() {
     print_header "Installing Neovim"
     if ! command_exists nvim; then
-        print_step "Downloading Neovim..."
+        print_step "Installing Neovim from official Arch repository..."
         
-        # Create temporary directory for installation
-        TEMP_DIR=$(mktemp -d)
+        # Install the latest Neovim from Arch repos
+        sudo pacman -S --noconfirm neovim
         if [ $? -ne 0 ]; then
-            print_error "Failed to create temporary directory for Neovim installation"
+            print_error "Failed to install Neovim"
             return 1
         fi
         
-        cd "$TEMP_DIR" || { 
-            print_error "Failed to change directory to $TEMP_DIR"
-            return 1
-        }
-        
-        # Download Neovim AppImage
-        print_step "Downloading Neovim v${NVIM_VERSION}..."
-        wget -q "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/nvim.appimage"
-        if [ $? -ne 0 ]; then
-            print_error "Failed to download Neovim AppImage"
-            return 1
-        fi
-        
-        # Make it executable
-        chmod u+x nvim.appimage
-        if [ $? -ne 0 ]; then
-            print_error "Failed to make Neovim AppImage executable"
-            return 1
-        fi
-        
-        # Extract the AppImage
-        print_step "Extracting Neovim AppImage..."
-        ./nvim.appimage --appimage-extract
-        if [ $? -ne 0 ]; then
-            print_error "Failed to extract Neovim AppImage"
-            return 1
-        fi
-        
-        # Create the target directory and move files
-        print_step "Installing Neovim..."
-        sudo mkdir -p /opt/nvim
-        if [ $? -ne 0 ]; then
-            print_error "Failed to create /opt/nvim directory"
-            return 1
-        fi
-        
-        sudo cp -r squashfs-root/* /opt/nvim/
-        if [ $? -ne 0 ]; then
-            print_error "Failed to copy Neovim files to /opt/nvim"
-            return 1
-        fi
-        
-        # Create symlinks
-        sudo ln -sf /opt/nvim/AppRun /usr/local/bin/nvim
-        if [ $? -ne 0 ]; then
-            print_error "Failed to create system-wide Neovim symlink"
-            return 1
-        fi
-        
-        ln -sf /usr/local/bin/nvim ~/.local/bin/nvim
-        
-        # Clean up temporary files
-        cd "$HOME" || {
-            print_error "Failed to return to home directory"
-            return 1
-        }
-        rm -rf "$TEMP_DIR"
+        # Create symlink in local bin for consistency
+        ln -sf /usr/bin/nvim ~/.local/bin/nvim
         
         # Verify installation
         print_step "Verifying Neovim installation..."
@@ -419,7 +347,7 @@ setup_ansible() {
     print_header "Setting up Ansible"
     if ! command_exists ansible; then
         print_step "Installing Ansible..."
-        sudo apt install -y ansible
+        sudo pacman -S --noconfirm ansible
         if [ $? -ne 0 ]; then
             print_error "Failed to install Ansible"
             return 1
@@ -573,7 +501,7 @@ setup_zsh() {
     # Install zsh if not already installed
     if ! command_exists zsh; then
         print_step "Installing Zsh..."
-        sudo apt install -y zsh
+        sudo pacman -S --noconfirm zsh
         if [ $? -ne 0 ]; then
             print_error "Failed to install Zsh"
             return 1
@@ -641,7 +569,7 @@ source $ZSH/oh-my-zsh.sh
 # Environment setup
 export EDITOR='nvim'
 export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
-export CHEZMOI_SOURCE_DIR="$HOME/dev-env/dotfiles"
+export CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 
 # NVM setup if it exists
 export NVM_DIR="$HOME/.nvm"
@@ -661,12 +589,12 @@ if [ -f "/usr/bin/neofetch" ]; then
   echo ""
   echo "🚀 WSL Dev Environment - Quick Reference"
   echo "───────────────────────────────────────"
-  echo "📝 Edit config files: chezmoi edit --source=\"$HOME/dev-env/dotfiles\" ~/.zshrc"
-  echo "🔄 Apply dotfile changes: chezmoi apply --source=\"$HOME/dev-env/dotfiles\""
-  echo "📊 Check dotfile status: chezmoi status --source=\"$HOME/dev-env/dotfiles\""
+  echo "📝 Edit config files: chezmoi edit --source=\"$HOME/dotfiles\" ~/.zshrc"
+  echo "🔄 Apply dotfile changes: chezmoi apply --source=\"$HOME/dotfiles\""
+  echo "📊 Check dotfile status: chezmoi status --source=\"$HOME/dotfiles\""
   echo "💻 Editor: nvim | Multiplexer: tmux | Shell: zsh"
-  echo "📋 Docs: ~/dev-env/docs/ (try: cat ~/dev-env/docs/quick-reference.md)"
-  echo "🔨 Update environment: ~/dev-env/update.sh"
+  echo "📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)"
+  echo "🔨 Update environment: ~/dev/update.sh"
   echo ""
 fi
 
@@ -713,11 +641,11 @@ if command -v npm >/dev/null 2>&1; then
 fi
 
 # Chezmoi aliases with source directory
-alias cz='chezmoi --source="$HOME/dev-env/dotfiles"'
-alias cza='chezmoi add --source="$HOME/dev-env/dotfiles"'
-alias cze='chezmoi edit --source="$HOME/dev-env/dotfiles"'
-alias czd='chezmoi diff --source="$HOME/dev-env/dotfiles"'
-alias czap='chezmoi apply --source="$HOME/dev-env/dotfiles"'
+alias cz='chezmoi --source="$HOME/dotfiles"'
+alias cza='chezmoi add --source="$HOME/dotfiles"'
+alias cze='chezmoi edit --source="$HOME/dotfiles"'
+alias czd='chezmoi diff --source="$HOME/dotfiles"'
+alias czap='chezmoi apply --source="$HOME/dotfiles"'
 EOL
     
     if [ $? -ne 0 ]; then
@@ -758,7 +686,7 @@ setup_tmux() {
     # Check if tmux is installed
     if ! command_exists tmux; then
         print_step "Installing tmux..."
-        sudo apt install -y tmux
+        sudo pacman -S --noconfirm tmux
         if [ $? -ne 0 ]; then
             print_error "Failed to install tmux"
             return 1
@@ -976,7 +904,7 @@ setup_bashrc_helper() {
     cat > "$QUICK_REF" << 'EOL'
 
 # Export chezmoi source directory
-export CHEZMOI_SOURCE_DIR="$HOME/dev-env/dotfiles"
+export CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 
 # Display helpful quick reference after neofetch
 if [ -f "/usr/bin/neofetch" ]; then
@@ -984,21 +912,21 @@ if [ -f "/usr/bin/neofetch" ]; then
   echo ""
   echo "🚀 WSL Dev Environment - Quick Reference"
   echo "───────────────────────────────────────"
-  echo "📝 Edit config files: chezmoi edit --source=\"$HOME/dev-env/dotfiles\" ~/.bashrc"
-  echo "🔄 Apply dotfile changes: chezmoi apply --source=\"$HOME/dev-env/dotfiles\""
-  echo "📊 Check dotfile status: chezmoi status --source=\"$HOME/dev-env/dotfiles\""
+  echo "📝 Edit config files: chezmoi edit --source=\"$HOME/dotfiles\" ~/.bashrc"
+  echo "🔄 Apply dotfile changes: chezmoi apply --source=\"$HOME/dotfiles\""
+  echo "📊 Check dotfile status: chezmoi status --source=\"$HOME/dotfiles\""
   echo "💻 Editor: nvim | Multiplexer: tmux"
-  echo "📋 Docs: ~/dev-env/docs/ (try: cat ~/dev-env/docs/quick-reference.md)"
-  echo "🔨 Update environment: ~/dev-env/update.sh"
+  echo "📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)"
+  echo "🔨 Update environment: ~/dev/update.sh"
   echo ""
 fi
 
 # Chezmoi aliases with source directory
-alias cz='chezmoi --source="$HOME/dev-env/dotfiles"'
-alias cza='chezmoi add --source="$HOME/dev-env/dotfiles"'
-alias cze='chezmoi edit --source="$HOME/dev-env/dotfiles"'
-alias czd='chezmoi diff --source="$HOME/dev-env/dotfiles"'
-alias czap='chezmoi apply --source="$HOME/dev-env/dotfiles"'
+alias cz='chezmoi --source="$HOME/dotfiles"'
+alias cza='chezmoi add --source="$HOME/dotfiles"'
+alias cze='chezmoi edit --source="$HOME/dotfiles"'
+alias czd='chezmoi diff --source="$HOME/dotfiles"'
+alias czap='chezmoi apply --source="$HOME/dotfiles"'
 EOL
     
     # Check if neofetch alias exists, add if not
@@ -1076,7 +1004,7 @@ setup_dotfiles_repo() {
     # Check if git is available
     if ! command_exists git; then
         print_warning "Git is not installed. Installing Git..."
-        sudo apt install -y git
+        sudo pacman -S --noconfirm git
         if [ $? -ne 0 ]; then
             print_error "Failed to install Git"
             return 1
@@ -1118,7 +1046,7 @@ setup_dotfiles_repo() {
             # If not, stage all files and make an initial commit
             print_step "Creating initial commit on main branch..."
             git add .
-            git commit -m "batman"
+            git commit -m "Initial commit: My dotfiles managed by Chezmoi"
         fi
         
         # Setup GitHub repository
@@ -1136,7 +1064,7 @@ setup_dotfiles_repo() {
         git add .
         
         # Create initial commit with a meaningful message
-        git commit -m "batman"
+        git commit -m "Initial commit: My dotfiles managed by Chezmoi"
         
         # Setup GitHub repository
         setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
@@ -1271,7 +1199,7 @@ setup_git_config() {
     # Check if Git is installed
     if ! command_exists git; then
         print_warning "Git is not installed. Installing Git..."
-        sudo apt install -y git
+        sudo pacman -S --noconfirm git
         if [ $? -ne 0 ]; then
             print_error "Failed to install Git"
             return 1
@@ -1344,7 +1272,7 @@ setup_nodejs() {
     if [ ! -d "$HOME/.nvm" ]; then
         print_step "Installing NVM (Node Version Manager)..."
         # Install development tools needed for building Node.js
-        sudo apt install -y build-essential libssl-dev
+        sudo pacman -S --noconfirm base-devel openssl
         
         # Install NVM
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
@@ -1468,21 +1396,12 @@ setup_claude_code() {
 setup_github_info() {
     print_header "Setting up GitHub Integration"
     
-    # Check if GitHub CLI is installed, install if not
+    # Check if GitHub CLI is installed, it should be since we installed it in core deps
     if ! command_exists gh; then
-        print_step "Installing GitHub CLI..."
-        
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-        sudo apt update
-        sudo apt install -y gh
-        
-        if [ $? -ne 0 ]; then
-            print_error "Failed to install GitHub CLI"
-            print_warning "GitHub integration features will be disabled"
-            USE_GITHUB=false
-            return 0
-        fi
+        print_error "GitHub CLI is not installed even though it should have been"
+        print_warning "GitHub integration features will be disabled"
+        USE_GITHUB=false
+        return 0
     fi
     
     print_step "GitHub CLI is installed"
@@ -1685,20 +1604,20 @@ Chezmoi is a dotfile manager that helps you manage your configuration files acro
 
 ## Basic Commands
 
-Our setup uses a custom source directory at `~/dev-env/dotfiles`. Always use the `--source` flag as shown below:
+Our setup uses a custom source directory at `~/dotfiles`. Always use the `--source` flag as shown below:
 
 ```bash
 # Add a file to be managed by chezmoi
-chezmoi add --source="$HOME/dev-env/dotfiles" ~/.zshrc
+chezmoi add --source="$HOME/dotfiles" ~/.zshrc
 
 # Edit a file
-chezmoi edit --source="$HOME/dev-env/dotfiles" ~/.zshrc
+chezmoi edit --source="$HOME/dotfiles" ~/.zshrc
 
 # Apply changes
-chezmoi apply --source="$HOME/dev-env/dotfiles"
+chezmoi apply --source="$HOME/dotfiles"
 
 # See what changes would be made
-chezmoi diff --source="$HOME/dev-env/dotfiles"
+chezmoi diff --source="$HOME/dotfiles"
 ```
 
 ## Using Aliases
@@ -1798,15 +1717,15 @@ czd        # Show differences
 
 ## Directory Structure
 
-- `~/dev-env`: Main environment directory
-  - `/dotfiles`: Chezmoi source directory
+- `~/dev`: Main environment directory
   - `/docs`: Documentation
   - `/bin`: Custom scripts
   - `/projects`: Project storage (recommended)
+- `~/dotfiles`: Chezmoi source directory
 
 ## Updates
 
-Run `~/dev-env/update.sh` to update your environment.
+Run `~/dev/update.sh` to update your environment.
 EOL
     
     print_success "Component documentation created successfully"
@@ -1833,15 +1752,9 @@ echo -e "${CYAN}==== WSL Development Environment Update ====${NC}"
 echo -e "${BLUE}→ Updating system packages...${NC}"
 
 # Update system packages
-sudo apt update
+sudo pacman -Syu --noconfirm
 if [ $? -ne 0 ]; then
-    echo -e "${RED}✗ Failed to update package lists${NC}"
-    exit 1
-fi
-
-sudo apt upgrade -y
-if [ $? -ne 0 ]; then
-    echo -e "${RED}✗ Failed to upgrade packages${NC}"
+    echo -e "${RED}✗ Failed to update system packages${NC}"
     exit 1
 fi
 
@@ -1901,7 +1814,7 @@ fi
 
 # Update Chezmoi dotfiles if configured
 if command -v chezmoi > /dev/null; then
-    CHEZMOI_SOURCE_DIR="$HOME/dev-env/dotfiles"
+    CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
     
     if [ -d "$CHEZMOI_SOURCE_DIR" ]; then
         echo -e "${BLUE}→ Updating Chezmoi and dotfiles...${NC}"
@@ -1963,11 +1876,11 @@ display_completion_message() {
     if $GITHUB_REPO_CREATED; then
         echo -e "${GREEN}Your dotfiles are backed up to GitHub at: https://github.com/$GITHUB_USERNAME/dotfiles${NC}"
         echo -e "${BLUE}You can clone them on another machine with:${NC}"
-        echo -e "chezmoi init --source=~/dev-env/dotfiles https://github.com/$GITHUB_USERNAME/dotfiles.git"
+        echo -e "chezmoi init --source=~/dotfiles https://github.com/$GITHUB_USERNAME/dotfiles.git"
     elif $USE_GITHUB; then
         echo -e "${YELLOW}GitHub repository setup was not completed.${NC}"
         echo -e "${BLUE}To create it later, run:${NC}"
-        echo -e "cd ~/dev-env/dotfiles && gh repo create dotfiles --private && git push -u origin main"
+        echo -e "cd ~/dotfiles && gh repo create dotfiles --private && git push -u origin main"
     fi
     
     # Show tools installed
@@ -1982,11 +1895,11 @@ display_completion_message() {
     # Show quick reference and documentation location
     echo -e "\n${CYAN}Documentation:${NC}"
     echo -e "Quick reference guide: ${GREEN}cat $QUICK_REF_PATH${NC}"
-    echo -e "All documentation: ${GREEN}ls ~/dev-env/docs/${NC}"
+    echo -e "All documentation: ${GREEN}ls ~/dev/docs/${NC}"
     
     # Show update script location
     echo -e "\n${CYAN}Updates:${NC}"
-    echo -e "To update your environment: ${GREEN}~/dev-env/update.sh${NC}"
+    echo -e "To update your environment: ${GREEN}~/dev/update.sh${NC}"
     
     echo -e "\n${YELLOW}Enjoy your new development environment!${NC}"
     return 0
@@ -1996,7 +1909,7 @@ display_completion_message() {
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${PURPLE}| WSL Development Environment Setup v${SCRIPT_VERSION} |${NC}"
 echo -e "${PURPLE}===============================================${NC}"
-echo -e "${GREEN}This script will set up a development environment optimized for WSL Debian${NC}"
+echo -e "${GREEN}This script will set up a development environment optimized for WSL Arch Linux${NC}"
 
 # Set up GitHub information first
 setup_github_info || exit 1

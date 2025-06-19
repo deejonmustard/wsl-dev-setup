@@ -2,11 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A simple script to set up a beginner-friendly development environment for WSL Debian with dotfile management.
+A simple script to set up a beginner-friendly development environment for WSL Arch Linux with dotfile management.
 
 ## Features
 
-- Neovim with Kickstart configuration
+- Neovim with Kickstart configuration (latest version from Arch repos)
 - Zsh with Oh My Zsh and plugins
 - Tmux for terminal multiplexer
 - Chezmoi for dotfile management across Windows and WSL
@@ -14,36 +14,33 @@ A simple script to set up a beginner-friendly development environment for WSL De
 - Claude Code AI assistant
 - Core development tools and utilities
 - **Seamless GitHub integration** via GitHub CLI
-- **Organized directory structure** with all configuration in ~/dev-env
+- **Organized directory structure** with configuration in ~/dev and dotfiles in ~/dotfiles
 
 ## Quick Install
 
-Uninstall previous WSL Debian installation (if needed)
+Install WSL Arch Linux:
  
 ```bash
-wsl --unregister Debian
+# Install Arch Linux from the Microsoft Store or via:
+wsl --install -d Arch
 
 # List Local Distro Installs w Version:
-
 wsl -l -v
 
-# Install From Store (More Updates):
- 
-wsl.exe --install -d Debian
-
-# Launch Debian:
-
-wsl.exe -d Debian
-
+# Launch Arch Linux:
+wsl.exe -d Arch
 ```
 
-From a fresh Debian WSL installation, run:
+From a fresh Arch Linux WSL installation, run:
 
 ```bash
-# Update system and install curl first
-sudo apt update
-sudo apt upgrade -y
-sudo apt install curl -y
+# Initialize keyring and update system
+sudo pacman-key --init
+sudo pacman-key --populate
+sudo pacman -Syu
+
+# Install curl
+sudo pacman -S curl
 
 # Download and run the setup script
 curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
@@ -51,8 +48,8 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 
 ## What's Included
 
-- **Core Tools**: git, ripgrep, fd-find, fzf, tmux, zsh, and more
-- **Neovim**: Modern text editor with Kickstart configuration
+- **Core Tools**: git, ripgrep, fd, fzf, tmux, zsh, and more
+- **Neovim**: Latest version from Arch repositories with Kickstart configuration
 - **Zsh**: Enhanced shell with Oh My Zsh and plugins
 - **Chezmoi**: Dotfile manager to sync configs between WSL and Windows
 - **NVM**: Node Version Manager for JavaScript development
@@ -60,11 +57,21 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 - **WSL Utilities**: Helper scripts for Windows integration
 - **GitHub CLI**: Seamless dotfiles repository management
 
+## Directory Structure
+
+The setup creates an organized structure:
+- `~/dev`: Main development environment directory
+  - `/docs`: Documentation for installed tools
+  - `/bin`: Custom scripts and utilities
+  - `/projects`: Recommended location for your projects
+  - `/configs`: Various configuration backups
+- `~/dotfiles`: Chezmoi source directory for all your dotfiles
+
 ## GitHub Integration
 
 The setup script now includes comprehensive GitHub integration using GitHub CLI:
 
-1. **Automatic CLI Installation**: Installs GitHub CLI if needed
+1. **Automatic CLI Installation**: Installs GitHub CLI from Arch repos
 2. **Interactive Authentication**: Simple web-based or token auth flow
 3. **Automatic Username Detection**: No need to manually enter your username
 4. **One-Command Repository Creation**: Creates private or public repos with a single command
@@ -89,29 +96,29 @@ Chezmoi is installed to help you manage your configuration files (dotfiles) acro
 
 ### Organized Directory Structure
 
-This setup uses a custom source directory for Chezmoi at `~/dev-env/dotfiles` instead of the default location. This keeps all your important configuration in one organized place.
+This setup uses a custom source directory for Chezmoi at `~/dotfiles` instead of the default location. This keeps your dotfiles separate from your development environment.
 
 ### Basic Usage
 
 ```bash
 # Add a configuration file to be managed by chezmoi
-chezmoi add --source="$HOME/dev-env/dotfiles" ~/.zshrc
+chezmoi add --source="$HOME/dotfiles" ~/.zshrc
 
 # Edit a configuration file
-chezmoi edit --source="$HOME/dev-env/dotfiles" ~/.zshrc
+chezmoi edit --source="$HOME/dotfiles" ~/.zshrc
 
 # Apply changes to your dotfiles
-chezmoi apply --source="$HOME/dev-env/dotfiles"
+chezmoi apply --source="$HOME/dotfiles"
 
 # Push changes to your dotfiles repository
-chezmoi git --source="$HOME/dev-env/dotfiles" push
+chezmoi git --source="$HOME/dotfiles" push
 ```
 
 ### Managing Machine-Specific Differences
 
 Chezmoi allows you to handle differences between your Windows environment and WSL setup using templates and conditional logic.
 
-For a full guide, see the documentation in `~/dev-env/docs/chezmoi-guide.md` after installation.
+For a full guide, see the documentation in `~/dev/docs/chezmoi-guide.md` after installation.
 
 ### Integrating Windows Dotfiles with WSL
 
@@ -136,21 +143,21 @@ choco install chezmoi
 
 ```powershell
 # Initialize Chezmoi with your GitHub repository
-chezmoi init --source=~\dev-env\dotfiles https://github.com/YOUR-USERNAME/dotfiles.git
+chezmoi init --source=~\dotfiles https://github.com/YOUR-USERNAME/dotfiles.git
 
 # Apply configuration files
-chezmoi apply --source=~\dev-env\dotfiles
+chezmoi apply --source=~\dotfiles
 ```
 
 #### 3. Add Windows-Specific Files
 
 ```powershell
 # Add PowerShell profile
-chezmoi add --source=~\dev-env\dotfiles $PROFILE
+chezmoi add --source=~\dotfiles $PROFILE
 
 # Add other Windows config files
-chezmoi add --source=~\dev-env\dotfiles ~\AppData\Roaming\Windows Terminal\settings.json
-chezmoi add --source=~\dev-env\dotfiles ~\.gitconfig
+chezmoi add --source=~\dotfiles ~\AppData\Roaming\Windows Terminal\settings.json
+chezmoi add --source=~\dotfiles ~\.gitconfig
 ```
 
 #### 4. Handle OS-Specific Differences
@@ -171,12 +178,12 @@ Since both systems point to the same GitHub repository, you can keep them in syn
 
 ```powershell
 # In Windows PowerShell
-chezmoi update --source=~\dev-env\dotfiles
+chezmoi update --source=~\dotfiles
 ```
 
 ```bash
 # In WSL
-chezmoi update --source="$HOME/dev-env/dotfiles"
+chezmoi update --source="$HOME/dotfiles"
 ```
 
 This way, any changes you make to your configuration in either environment will be available in both!
@@ -187,11 +194,19 @@ After installation, you can update your environment by running:
 
 ```bash
 # Update system and tools
-~/dev-env/update.sh
+~/dev/update.sh
 
 # Update dotfiles separately
-chezmoi update --source="$HOME/dev-env/dotfiles"
+chezmoi update --source="$HOME/dotfiles"
 ```
+
+## Arch Linux Specific Notes
+
+This setup is optimized for Arch Linux on WSL and uses:
+- `pacman` for package management
+- Latest Neovim from official Arch repositories
+- Arch-specific package names (e.g., `fd` instead of `fd-find`)
+- Base development tools from `base-devel` package group
 
 ## License
 
