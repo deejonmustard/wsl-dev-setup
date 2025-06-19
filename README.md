@@ -21,6 +21,9 @@ A simple script to set up a beginner-friendly development environment for WSL Ar
 Install WSL Arch Linux:
  
 ```bash
+# Remove Previous Arch Installation (If Needed)
+wsl --unregister Arch
+
 # Install Arch Linux from the Microsoft Store or via:
 wsl --install -d Arch
 
