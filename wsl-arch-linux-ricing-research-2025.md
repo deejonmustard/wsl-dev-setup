@@ -1048,57 +1048,123 @@ While your script successfully sets up Chezmoi for WSL dotfiles, it doesn't addr
 2. Some configs need to be shared (Git, VS Code)
 3. You want to edit from either environment
 
+### Your Current Setup: Symlinks on Windows
+
+Looking at your [dotfiles repository](https://github.com/deejonmustard/dotfiles), you're using symlinks for Windows dotfile management. This is a common approach, but when it comes to WSL integration, there are important considerations:
+
+**Why Symlinks Aren't Best Practice for WSL:**
+1. **Performance**: Accessing Windows files from WSL via `/mnt/c` is significantly slower
+2. **Permissions**: Linux permission models don't translate well to Windows symlinks
+3. **Line Endings**: CRLF/LF conversion issues can break scripts and configs
+4. **Git Issues**: Permission differences make Git think files are always modified
+5. **Editor Problems**: Some editors and tools don't handle cross-filesystem symlinks well
+
+**Example of the Performance Difference:**
+```bash
+# Symlink to Windows (SLOW - goes through WSL2's 9P protocol)
+~/.bashrc -> /mnt/c/Users/username/dotfiles/.bashrc
+
+# Native WSL file (FAST - native ext4 filesystem)
+~/.bashrc (managed by Chezmoi in WSL filesystem)
+```
+
 ### The Solution: Unified Chezmoi Setup
 
 I've created a comprehensive guide: **[Complete Guide: Syncing Windows and WSL Dotfiles with Chezmoi](chezmoi-windows-wsl-sync-guide.md)**
 
 This guide explains how to:
+- Migrate from your symlink setup to Chezmoi (or keep both)
 - Use ONE dotfiles folder accessible from both Windows and WSL
 - Handle platform differences with templates
 - Sync everything through GitHub automatically
-- Edit configs from either environment seamlessly
 
-### Critical Script Improvements for Unified Management
+### Your Options
 
-Add this enhanced Chezmoi setup to your script:
+Given your existing symlink setup, you have three paths:
+
+#### Option 1: Keep Windows Symlinks, Use Chezmoi for WSL Only (Simple)
+- ✅ No changes to your Windows workflow
+- ✅ Can implement immediately
+- ❌ Two different systems to maintain
+- ❌ No shared configs between Windows/WSL
+
+#### Option 2: Migrate Everything to Chezmoi (Recommended)
+- ✅ One unified system
+- ✅ Automatic handling of platform differences
+- ✅ Better performance in WSL
+- ✅ Encryption support for sensitive data
+- ❌ Initial migration effort (1-2 hours)
+
+#### Option 3: Hybrid Approach (Not Recommended)
+- Too complex to maintain effectively
+
+### Critical Script Improvements for Your Case
+
+Add this enhanced Chezmoi setup to your script that detects and handles your existing dotfiles:
 
 ```bash
-# Enhanced Chezmoi setup for Windows/WSL unity
-setup_unified_chezmoi() {
-    print_header "Setting up Unified Chezmoi for Windows/WSL"
+# Enhanced Chezmoi setup that detects existing dotfiles
+setup_unified_chezmoi_for_existing_users() {
+    print_header "Setting up Chezmoi with Existing Dotfiles Detection"
     
     # Detect Windows username
     WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
     
-    # Check if Windows already has Chezmoi
-    WIN_CHEZMOI="/mnt/c/Users/$WIN_USER/.local/share/chezmoi"
-    
-    if [ -d "$WIN_CHEZMOI" ]; then
-        # Use Windows Chezmoi source
-        print_step "Configuring WSL to use Windows Chezmoi source..."
+    # Check for existing Windows dotfiles repo
+    if [ -d "/mnt/c/Users/$WIN_USER/dotfiles/.git" ]; then
+        print_success "Found existing dotfiles at /mnt/c/Users/$WIN_USER/dotfiles"
         
-        mkdir -p "$HOME/.config/chezmoi"
-        cat > "$HOME/.config/chezmoi/chezmoi.toml" << EOF
-sourceDir = "$WIN_CHEZMOI"
-
-[data]
-    name = "$GIT_NAME"
-    email = "$GIT_EMAIL"
-    
-[edit]
-    command = "nvim"
-EOF
+        echo -e "\n${BLUE}You have existing Windows dotfiles using symlinks.${NC}"
+        echo -e "${BLUE}How would you like to proceed?${NC}"
+        echo "1) Keep Windows symlinks, use Chezmoi for WSL only"
+        echo "2) Migrate everything to Chezmoi (recommended)"
+        read -r choice
         
-        # Symlink for convenience
-        ln -sf "$WIN_CHEZMOI" "$HOME/dotfiles"
-        
-        print_success "Unified Chezmoi configured!"
-    else
-        # Fallback to WSL-first approach
-        print_warning "Setting up WSL-first Chezmoi (see guide for Windows integration)"
-        # ... existing setup ...
+        case $choice in
+            1)
+                # WSL-only setup
+                print_step "Setting up WSL-only Chezmoi..."
+                # Use separate dotfiles-wsl directory
+                CHEZMOI_SOURCE_DIR="$HOME/dotfiles-wsl"
+                ;;
+            2)
+                # Unified setup
+                print_step "Preparing for unified Chezmoi setup..."
+                echo "Follow the migration guide in chezmoi-windows-wsl-sync-guide.md"
+                ;;
+        esac
     fi
+    
+    # Continue with setup...
 }
+```
+
+### Template Example: Sharing Git Config
+
+Since you use Git on both Windows and WSL, here's how to handle it properly with Chezmoi templates instead of symlinks:
+
+```ini
+# .gitconfig.tmpl (works on both platforms)
+[user]
+    name = {{ .name }}
+    email = {{ .email }}
+
+[core]
+{{- if eq .chezmoi.os "windows" }}
+    autocrlf = true
+    editor = "code --wait"
+{{- else if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    autocrlf = input
+    editor = nvim
+    # Use Windows SSH keys from WSL
+    sshCommand = "/mnt/c/Windows/System32/OpenSSH/ssh.exe"
+{{- end }}
+
+# Your aliases work everywhere
+[alias]
+    co = checkout
+    br = branch
+    # etc...
 ```
 
 ### The Ethos: Flexibility Through Templates
@@ -1135,7 +1201,7 @@ primary.foreground = '{{ .customFg }}'
 ### Next Steps
 
 1. **Read the Full Guide**: [chezmoi-windows-wsl-sync-guide.md](chezmoi-windows-wsl-sync-guide.md)
-2. **Implement Script Changes**: Add `setup_unified_chezmoi` function
+2. **Implement Script Changes**: Add `setup_unified_chezmoi_for_existing_users` function
 3. **Create Templates**: Start with `.gitconfig.tmpl` as practice
 4. **Test Both Sides**: Ensure edits work from Windows AND WSL
 
