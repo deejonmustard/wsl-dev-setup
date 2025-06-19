@@ -45,10 +45,11 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 # Make it executable and run
 chmod +x setup.sh
 ./setup.sh
-
-# Optional: Run in interactive mode (prompts for each package)
-./setup.sh --interactive
 ```
+
+Optional: Run in interactive mode (prompts for each package)
+`./setup.sh --interactive`
+
 
 The script will:
 1. Initialize the pacman keyring if needed
