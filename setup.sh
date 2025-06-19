@@ -67,6 +67,105 @@ ensure_dir() {
     return 0
 }
 
+# --- Bootstrap Functions ---
+
+# Check if running as root and handle initial setup
+bootstrap_arch() {
+    print_header "Bootstrapping Arch Linux WSL Environment"
+    
+    # Check if we're running as root
+    if [ "$EUID" -eq 0 ]; then
+        print_warning "Running as root. Setting up basic environment..."
+        
+        # Initialize pacman keyring if needed
+        if [ ! -d /etc/pacman.d/gnupg ]; then
+            print_step "Initializing pacman keyring..."
+            pacman-key --init
+            pacman-key --populate
+        fi
+        
+        # Update system first
+        print_step "Updating system packages..."
+        pacman -Syu --noconfirm
+        
+        # Install sudo if not present
+        if ! command_exists sudo; then
+            print_step "Installing sudo..."
+            pacman -S --noconfirm sudo
+            if [ $? -ne 0 ]; then
+                print_error "Failed to install sudo"
+                exit 1
+            fi
+        fi
+        
+        # Ask if user wants to create a new user
+        echo -e "\n${BLUE}You're currently running as root. Would you like to create a new user? (recommended) (y/n) [y]${NC}"
+        read -r create_user
+        create_user=${create_user:-y}
+        
+        if [[ "$create_user" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Enter username for the new user:${NC}"
+            read -r new_username
+            
+            if [ -n "$new_username" ]; then
+                # Create user with home directory
+                print_step "Creating user $new_username..."
+                useradd -m -G wheel -s /bin/bash "$new_username"
+                
+                # Set password
+                echo -e "${BLUE}Please set a password for $new_username:${NC}"
+                passwd "$new_username"
+                
+                # Configure sudo for wheel group
+                print_step "Configuring sudo access..."
+                echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
+                
+                # Set as default WSL user
+                print_step "Setting $new_username as default WSL user..."
+                echo "[user]" > /etc/wsl.conf
+                echo "default=$new_username" >> /etc/wsl.conf
+                
+                print_success "User $new_username created successfully!"
+                print_warning "Please restart WSL and run this script again as $new_username"
+                print_step "To restart WSL, run in PowerShell: wsl --terminate Arch"
+                exit 0
+            fi
+        fi
+        
+        print_warning "Continuing as root user..."
+    else
+        # Running as regular user, check if sudo works
+        if ! command_exists sudo; then
+            print_error "sudo is not installed and you're not running as root"
+            print_warning "Please run this script as root first to set up the environment"
+            exit 1
+        fi
+        
+        # Test sudo access
+        if ! sudo -n true 2>/dev/null; then
+            print_step "Testing sudo access..."
+            sudo true
+            if [ $? -ne 0 ]; then
+                print_error "Failed to obtain sudo access"
+                exit 1
+            fi
+        fi
+    fi
+    
+    print_success "Bootstrap checks completed"
+}
+
+# Wrapper for commands that need elevated privileges
+run_elevated() {
+    if [ "$EUID" -eq 0 ]; then
+        # Already root, run directly
+        "$@"
+    else
+        # Use sudo
+        sudo "$@"
+    fi
+}
+
 # Function to safely add a file to chezmoi
 safe_add_to_chezmoi() {
     local target_file="$1"
@@ -156,7 +255,7 @@ setup_workspace() {
 update_system() {
     print_header "Updating System Packages"
     print_step "Updating package database..."
-    sudo pacman -Syu --noconfirm
+    run_elevated pacman -Syu --noconfirm
     if [ $? -ne 0 ]; then
         print_error "Failed to update system packages"
         return 1
@@ -171,7 +270,7 @@ install_core_deps() {
     print_header "Installing Core Dependencies"
     print_step "Installing essential packages..."
     
-    sudo pacman -S --noconfirm curl wget git python python-pip python-virtualenv unzip \
+    run_elevated pacman -S --noconfirm curl wget git python python-pip python-virtualenv unzip \
         base-devel file cmake ripgrep fd fzf tmux zsh \
         jq bat htop github-cli
     
@@ -195,7 +294,7 @@ install_neofetch() {
     print_header "Installing Neofetch"
     if ! command_exists neofetch || ! [ -f "/usr/bin/neofetch" ]; then
         print_step "Installing Neofetch..."
-        sudo pacman -S --noconfirm neofetch
+        run_elevated pacman -S --noconfirm neofetch
         if [ $? -ne 0 ]; then
             print_error "Failed to install Neofetch"
             return 1
@@ -225,7 +324,7 @@ install_neovim() {
         print_step "Installing Neovim from official Arch repository..."
         
         # Install the latest Neovim from Arch repos
-        sudo pacman -S --noconfirm neovim
+        run_elevated pacman -S --noconfirm neovim
         if [ $? -ne 0 ]; then
             print_error "Failed to install Neovim"
             return 1
@@ -347,7 +446,7 @@ setup_ansible() {
     print_header "Setting up Ansible"
     if ! command_exists ansible; then
         print_step "Installing Ansible..."
-        sudo pacman -S --noconfirm ansible
+        run_elevated pacman -S --noconfirm ansible
         if [ $? -ne 0 ]; then
             print_error "Failed to install Ansible"
             return 1
@@ -501,7 +600,7 @@ setup_zsh() {
     # Install zsh if not already installed
     if ! command_exists zsh; then
         print_step "Installing Zsh..."
-        sudo pacman -S --noconfirm zsh
+        run_elevated pacman -S --noconfirm zsh
         if [ $? -ne 0 ]; then
             print_error "Failed to install Zsh"
             return 1
@@ -686,7 +785,7 @@ setup_tmux() {
     # Check if tmux is installed
     if ! command_exists tmux; then
         print_step "Installing tmux..."
-        sudo pacman -S --noconfirm tmux
+        run_elevated pacman -S --noconfirm tmux
         if [ $? -ne 0 ]; then
             print_error "Failed to install tmux"
             return 1
@@ -1004,7 +1103,7 @@ setup_dotfiles_repo() {
     # Check if git is available
     if ! command_exists git; then
         print_warning "Git is not installed. Installing Git..."
-        sudo pacman -S --noconfirm git
+        run_elevated pacman -S --noconfirm git
         if [ $? -ne 0 ]; then
             print_error "Failed to install Git"
             return 1
@@ -1199,7 +1298,7 @@ setup_git_config() {
     # Check if Git is installed
     if ! command_exists git; then
         print_warning "Git is not installed. Installing Git..."
-        sudo pacman -S --noconfirm git
+        run_elevated pacman -S --noconfirm git
         if [ $? -ne 0 ]; then
             print_error "Failed to install Git"
             return 1
@@ -1272,7 +1371,7 @@ setup_nodejs() {
     if [ ! -d "$HOME/.nvm" ]; then
         print_step "Installing NVM (Node Version Manager)..."
         # Install development tools needed for building Node.js
-        sudo pacman -S --noconfirm base-devel openssl
+        run_elevated pacman -S --noconfirm base-devel openssl
         
         # Install NVM
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
@@ -1748,11 +1847,18 @@ BLUE='\033[0;34m'    # Information
 RED='\033[0;31m'     # Error messages
 CYAN='\033[0;36m'    # Section headers
 
+# Check if running as root
+if [ "$EUID" -eq 0 ]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
+
 echo -e "${CYAN}==== WSL Development Environment Update ====${NC}"
 echo -e "${BLUE}→ Updating system packages...${NC}"
 
 # Update system packages
-sudo pacman -Syu --noconfirm
+$SUDO pacman -Syu --noconfirm
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ Failed to update system packages${NC}"
     exit 1
@@ -1910,6 +2016,9 @@ echo -e "${PURPLE}===============================================${NC}"
 echo -e "${PURPLE}| WSL Development Environment Setup v${SCRIPT_VERSION} |${NC}"
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${GREEN}This script will set up a development environment optimized for WSL Arch Linux${NC}"
+
+# Bootstrap the environment first
+bootstrap_arch || exit 1
 
 # Set up GitHub information first
 setup_github_info || exit 1

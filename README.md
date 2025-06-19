@@ -21,30 +21,40 @@ A simple script to set up a beginner-friendly development environment for WSL Ar
 Install WSL Arch Linux:
  
 ```bash
+# Remove Previous Arch Installation (If Needed)
+wsl.exe --unregister archlinux
+
 # Install Arch Linux from the Microsoft Store or via:
-wsl --install -d Arch
+wsl.exe --install -d archlinux
 
 # List Local Distro Installs w Version:
-wsl -l -v
+wsl.exe -l -v
 
 # Launch Arch Linux:
-wsl.exe -d Arch
+wsl.exe -d archlinux
 ```
 
-From a fresh Arch Linux WSL installation, run:
+From a fresh Arch Linux WSL installation (you'll start as root):
 
 ```bash
-# Initialize keyring and update system
-sudo pacman-key --init
-sudo pacman-key --populate
-sudo pacman -Syu
+# Download the setup script
+curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh
 
-# Install curl
-sudo pacman -S curl
-
-# Download and run the setup script
-curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/main/setup.sh && chmod +x setup.sh && ./setup.sh
+# Make it executable and run
+chmod +x setup.sh
+./setup.sh
 ```
+
+The script will:
+1. Initialize the pacman keyring if needed
+2. Install sudo and base packages
+3. Offer to create a new user (recommended)
+4. Set up the complete development environment
+
+If you create a new user, you'll need to:
+1. Restart WSL: `wsl --terminate Arch` (in PowerShell)
+2. Launch Arch Linux again: `wsl -d Arch`
+3. Run the setup script again as your new user
 
 ## What's Included
 
@@ -207,6 +217,7 @@ This setup is optimized for Arch Linux on WSL and uses:
 - Latest Neovim from official Arch repositories
 - Arch-specific package names (e.g., `fd` instead of `fd-find`)
 - Base development tools from `base-devel` package group
+- Automatic bootstrap process for fresh installations
 
 ## License
 
