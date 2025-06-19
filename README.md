@@ -15,6 +15,7 @@ A simple script to set up a beginner-friendly development environment for WSL Ar
 - Core development tools and utilities
 - **Seamless GitHub integration** via GitHub CLI
 - **Organized directory structure** with configuration in ~/dev and dotfiles in ~/dotfiles
+- **Fastfetch** for system information display (modern neofetch alternative)
 
 ## Quick Install
 
@@ -34,7 +35,7 @@ wsl.exe -l -v
 wsl.exe -d archlinux
 ```
 
-From a fresh Arch Linux WSL installation (you'll start as root):
+From a fresh Arch Linux WSL installation (you'll start as root, create a new user, do `wsl --terminate archlinux` , open Arch Linux again, and run the script a second time):
 
 ```bash
 # Download the setup script
@@ -52,8 +53,8 @@ The script will:
 4. Set up the complete development environment
 
 If you create a new user, you'll need to:
-1. Restart WSL: `wsl --terminate Arch` (in PowerShell)
-2. Launch Arch Linux again: `wsl -d Arch`
+1. Restart WSL: `wsl.exe --terminate archlinux` (in PowerShell)
+2. Launch Arch Linux again: `wsl.exe -d archlinux`
 3. Run the setup script again as your new user
 
 ## What's Included
@@ -66,6 +67,7 @@ If you create a new user, you'll need to:
 - **Claude Code**: AI assistant for coding
 - **WSL Utilities**: Helper scripts for Windows integration
 - **GitHub CLI**: Seamless dotfiles repository management
+- **Fastfetch**: Modern system information tool (replaces the discontinued neofetch)
 
 ## Directory Structure
 
@@ -110,18 +112,20 @@ This setup uses a custom source directory for Chezmoi at `~/dotfiles` instead of
 
 ### Basic Usage
 
+The setup configures chezmoi to use `~/dotfiles` as the source directory via a config file, so you don't need to specify it each time:
+
 ```bash
 # Add a configuration file to be managed by chezmoi
-chezmoi add --source="$HOME/dotfiles" ~/.zshrc
+chezmoi add ~/.zshrc
 
 # Edit a configuration file
-chezmoi edit --source="$HOME/dotfiles" ~/.zshrc
+chezmoi edit ~/.zshrc
 
 # Apply changes to your dotfiles
-chezmoi apply --source="$HOME/dotfiles"
+chezmoi apply
 
 # Push changes to your dotfiles repository
-chezmoi git --source="$HOME/dotfiles" push
+cd ~/dotfiles && git push
 ```
 
 ### Managing Machine-Specific Differences
@@ -153,21 +157,21 @@ choco install chezmoi
 
 ```powershell
 # Initialize Chezmoi with your GitHub repository
-chezmoi init --source=~\dotfiles https://github.com/YOUR-USERNAME/dotfiles.git
+chezmoi init https://github.com/YOUR-USERNAME/dotfiles.git
 
 # Apply configuration files
-chezmoi apply --source=~\dotfiles
+chezmoi apply
 ```
 
 #### 3. Add Windows-Specific Files
 
 ```powershell
 # Add PowerShell profile
-chezmoi add --source=~\dotfiles $PROFILE
+chezmoi add $PROFILE
 
 # Add other Windows config files
-chezmoi add --source=~\dotfiles ~\AppData\Roaming\Windows Terminal\settings.json
-chezmoi add --source=~\dotfiles ~\.gitconfig
+chezmoi add ~\AppData\Roaming\Windows Terminal\settings.json
+chezmoi add ~\.gitconfig
 ```
 
 #### 4. Handle OS-Specific Differences
@@ -188,12 +192,12 @@ Since both systems point to the same GitHub repository, you can keep them in syn
 
 ```powershell
 # In Windows PowerShell
-chezmoi update --source=~\dotfiles
+chezmoi update
 ```
 
 ```bash
 # In WSL
-chezmoi update --source="$HOME/dotfiles"
+chezmoi update
 ```
 
 This way, any changes you make to your configuration in either environment will be available in both!
@@ -207,7 +211,7 @@ After installation, you can update your environment by running:
 ~/dev/update.sh
 
 # Update dotfiles separately
-chezmoi update --source="$HOME/dotfiles"
+chezmoi update
 ```
 
 ## Arch Linux Specific Notes

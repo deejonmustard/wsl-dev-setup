@@ -15,7 +15,7 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.0.1"
+SCRIPT_VERSION="0.0.2"
 SETUP_DIR="$HOME/dev"
 CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 GITHUB_USERNAME=""
@@ -88,6 +88,12 @@ bootstrap_arch() {
         print_step "Updating system packages..."
         pacman -Syu --noconfirm
         
+        # Generate locale to fix perl warnings
+        print_step "Generating locale..."
+        sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+        locale-gen
+        echo "LANG=en_US.UTF-8" > /etc/locale.conf
+        
         # Install sudo if not present
         if ! command_exists sudo; then
             print_step "Installing sudo..."
@@ -127,7 +133,7 @@ bootstrap_arch() {
                 
                 print_success "User $new_username created successfully!"
                 print_warning "Please restart WSL and run this script again as $new_username"
-                print_step "To restart WSL, run in PowerShell: wsl --terminate Arch"
+                print_step "To restart WSL, run in PowerShell: wsl.exe --terminate archlinux"
                 exit 0
             fi
         fi
@@ -148,6 +154,20 @@ bootstrap_arch() {
             if [ $? -ne 0 ]; then
                 print_error "Failed to obtain sudo access"
                 exit 1
+            fi
+        fi
+        
+        # Check and fix locale if needed
+        if ! locale 2>&1 | grep -q "LANG=en_US.UTF-8"; then
+            print_step "Fixing locale settings..."
+            if run_elevated grep -q "^en_US.UTF-8 UTF-8" /etc/locale.gen; then
+                run_elevated locale-gen
+            else
+                run_elevated sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+                run_elevated locale-gen
+            fi
+            if [ ! -f /etc/locale.conf ] || ! grep -q "LANG=en_US.UTF-8" /etc/locale.conf; then
+                echo "LANG=en_US.UTF-8" | run_elevated tee /etc/locale.conf > /dev/null
             fi
         fi
     fi
@@ -179,12 +199,12 @@ safe_add_to_chezmoi() {
     
     print_step "Adding $description to chezmoi..."
     if [ "$force" = "--force" ]; then
-        if ! chezmoi add --source="$CHEZMOI_SOURCE_DIR" --force "$target_file"; then
+        if ! chezmoi add --force "$target_file"; then
             print_error "Failed to add $description to chezmoi"
             return 1
         fi
     else
-        if ! chezmoi add --source="$CHEZMOI_SOURCE_DIR" "$target_file"; then
+        if ! chezmoi add "$target_file"; then
             print_error "Failed to add $description to chezmoi"
             return 1
         fi
@@ -289,29 +309,29 @@ install_core_deps() {
     return 0
 }
 
-# Install Neofetch for system information display
-install_neofetch() {
-    print_header "Installing Neofetch"
-    if ! command_exists neofetch || ! [ -f "/usr/bin/neofetch" ]; then
-        print_step "Installing Neofetch..."
-        run_elevated pacman -S --noconfirm neofetch
+# Install Fastfetch for system information display
+install_fastfetch() {
+    print_header "Installing Fastfetch"
+    if ! command_exists fastfetch; then
+        print_step "Installing Fastfetch (modern neofetch alternative)..."
+        run_elevated pacman -S --noconfirm fastfetch
         if [ $? -ne 0 ]; then
-            print_error "Failed to install Neofetch"
+            print_error "Failed to install Fastfetch"
             return 1
         fi
         
-        # Create an alias to ensure Linux version is used
-        if ! grep -q "alias neofetch='/usr/bin/neofetch'" ~/.bashrc; then
-            echo "alias neofetch='/usr/bin/neofetch'" >> ~/.bashrc
+        # Create an alias for backward compatibility
+        if ! grep -q "alias neofetch='fastfetch'" ~/.bashrc; then
+            echo "alias neofetch='fastfetch'" >> ~/.bashrc
         fi
         
-        print_success "Neofetch installed successfully"
+        print_success "Fastfetch installed successfully"
     else
-        print_step "Neofetch is already installed"
+        print_step "Fastfetch is already installed"
         
         # Ensure the alias exists
-        if ! grep -q "alias neofetch='/usr/bin/neofetch'" ~/.bashrc; then
-            echo "alias neofetch='/usr/bin/neofetch'" >> ~/.bashrc
+        if ! grep -q "alias neofetch='fastfetch'" ~/.bashrc; then
+            echo "alias neofetch='fastfetch'" >> ~/.bashrc
         fi
     fi
     return 0
@@ -433,7 +453,7 @@ setup_nvim_config() {
     
     cp -r "$TEMP_NVIM_DIR" "$HOME/.config/nvim"
     
-    chezmoi add --source="$CHEZMOI_SOURCE_DIR" "$HOME/.config/nvim"
+    chezmoi add "$HOME/.config/nvim"
     
     rm -rf "$TEMP_NVIM_DIR"
     
@@ -497,13 +517,26 @@ setup_chezmoi() {
     print_step "Creating basic Chezmoi configuration..."
     
     # Initialize chezmoi with empty repo if user doesn't already have a dotfiles repo
-    if [ ! -d "$CHEZMOI_SOURCE_DIR" ] || [ -z "$(ls -A "$CHEZMOI_SOURCE_DIR")" ]; then
+    if [ ! -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
         print_step "Initializing Chezmoi with empty repository in $CHEZMOI_SOURCE_DIR..."
-        chezmoi init --source="$CHEZMOI_SOURCE_DIR"
+        # First create the directory if it doesn't exist
+        mkdir -p "$CHEZMOI_SOURCE_DIR"
+        # Initialize chezmoi with custom config
+        chezmoi init --apply=false
+        # Set the custom source directory in chezmoi config
+        mkdir -p "$HOME/.config/chezmoi"
+        cat > "$HOME/.config/chezmoi/chezmoi.toml" << EOL
+[chezmoi]
+  sourceDir = "$CHEZMOI_SOURCE_DIR"
+EOL
         if [ $? -ne 0 ]; then
             print_error "Failed to initialize Chezmoi"
             return 1
         fi
+        
+        # Initialize git repo in the source directory
+        cd "$CHEZMOI_SOURCE_DIR" || return 1
+        git init
         
         # Create a basic .gitignore file in the chezmoi source directory
         print_step "Creating basic .gitignore file for dotfiles repo..."
@@ -535,6 +568,7 @@ venv/
 EOL
         
         print_success "Created .gitignore file for dotfiles repo"
+        cd "$HOME" || return 1
         
         # Ask if user wants to use an existing dotfiles repository
         echo -e "\n${BLUE}Do you have an existing dotfiles repo on GitHub? (y/n) [n]${NC}"
@@ -547,17 +581,32 @@ EOL
             read -r dotfiles_repo
             
             if [ -n "$dotfiles_repo" ]; then
+                # Initialize git in the source directory first
+                cd "$CHEZMOI_SOURCE_DIR" || return 1
+                git init
+                
                 # Check if it's just a username or a full URL
                 if [[ "$dotfiles_repo" != *"/"* && "$dotfiles_repo" != "http"* ]]; then
                     print_step "Using GitHub repository: https://github.com/$dotfiles_repo/dotfiles.git"
-                    chezmoi init --source="$CHEZMOI_SOURCE_DIR" "https://github.com/$dotfiles_repo/dotfiles.git"
+                    git remote add origin "https://github.com/$dotfiles_repo/dotfiles.git"
                 else
                     print_step "Using repository: $dotfiles_repo"
-                    chezmoi init --source="$CHEZMOI_SOURCE_DIR" "$dotfiles_repo"
+                    git remote add origin "$dotfiles_repo"
                 fi
                 
-                # Apply dotfiles with special flag to keep local changes by default
-                chezmoi apply --keep-going
+                # Try to fetch and checkout
+                print_step "Fetching dotfiles from repository..."
+                if git fetch origin; then
+                    git checkout -b main origin/main || git checkout -b master origin/master
+                    print_success "Dotfiles fetched successfully"
+                    
+                    # Apply dotfiles with special flag to keep local changes by default
+                    chezmoi apply --keep-going
+                else
+                    print_warning "Failed to fetch from repository. Repository might not exist yet."
+                fi
+                
+                cd "$HOME" || return 1
             else
                 print_warning "No repository provided, using empty local repository"
             fi
@@ -680,17 +729,17 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
-# Run neofetch and show quick reference at startup
-if [ -f "/usr/bin/neofetch" ]; then
-  /usr/bin/neofetch --backend ascii --disable disk --disk_show '/' --cpu_speed on --cpu_cores logical
+# Run fastfetch and show quick reference at startup
+if command -v fastfetch >/dev/null 2>&1; then
+  fastfetch
   
   # Display a brief helpful summary after neofetch
   echo ""
   echo "🚀 WSL Dev Environment - Quick Reference"
   echo "───────────────────────────────────────"
-  echo "📝 Edit config files: chezmoi edit --source=\"$HOME/dotfiles\" ~/.zshrc"
-  echo "🔄 Apply dotfile changes: chezmoi apply --source=\"$HOME/dotfiles\""
-  echo "📊 Check dotfile status: chezmoi status --source=\"$HOME/dotfiles\""
+  echo "📝 Edit config files: chezmoi edit ~/.zshrc"
+  echo "🔄 Apply dotfile changes: chezmoi apply"
+  echo "📊 Check dotfile status: chezmoi status"
   echo "💻 Editor: nvim | Multiplexer: tmux | Shell: zsh"
   echo "📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)"
   echo "🔨 Update environment: ~/dev/update.sh"
@@ -729,9 +778,9 @@ if [ -f /usr/bin/python3 ]; then
     alias python3='/usr/bin/python3'
 fi
 
-# Make sure we always use Linux version of neofetch
-if [ -f /usr/bin/neofetch ]; then
-    alias neofetch='/usr/bin/neofetch'
+# Alias neofetch to fastfetch for backward compatibility
+if command -v fastfetch >/dev/null 2>&1; then
+    alias neofetch='fastfetch'
 fi
 
 # Set npm to use Linux mode if available
@@ -739,12 +788,12 @@ if command -v npm >/dev/null 2>&1; then
     npm config set os linux >/dev/null 2>&1
 fi
 
-# Chezmoi aliases with source directory
-alias cz='chezmoi --source="$HOME/dotfiles"'
-alias cza='chezmoi add --source="$HOME/dotfiles"'
-alias cze='chezmoi edit --source="$HOME/dotfiles"'
-alias czd='chezmoi diff --source="$HOME/dotfiles"'
-alias czap='chezmoi apply --source="$HOME/dotfiles"'
+# Chezmoi aliases (using config file instead of --source flag)
+alias cz='chezmoi'
+alias cza='chezmoi add'
+alias cze='chezmoi edit'
+alias czd='chezmoi diff'
+alias czap='chezmoi apply'
 EOL
     
     if [ $? -ne 0 ]; then
@@ -965,7 +1014,7 @@ EOL
         echo 'alias code="$HOME/bin/code-wrapper.sh"' >> ~/.bashrc
         
         # Update bashrc in chezmoi
-        if chezmoi managed --source="$CHEZMOI_SOURCE_DIR" ~/.bashrc &>/dev/null; then
+        if chezmoi managed ~/.bashrc &>/dev/null; then
             safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration with code alias" --force
         fi
     fi
@@ -1005,33 +1054,33 @@ setup_bashrc_helper() {
 # Export chezmoi source directory
 export CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 
-# Display helpful quick reference after neofetch
-if [ -f "/usr/bin/neofetch" ]; then
+# Display helpful quick reference after fastfetch
+if command -v fastfetch >/dev/null 2>&1; then
   # Display a brief helpful summary
   echo ""
   echo "🚀 WSL Dev Environment - Quick Reference"
   echo "───────────────────────────────────────"
-  echo "📝 Edit config files: chezmoi edit --source=\"$HOME/dotfiles\" ~/.bashrc"
-  echo "🔄 Apply dotfile changes: chezmoi apply --source=\"$HOME/dotfiles\""
-  echo "📊 Check dotfile status: chezmoi status --source=\"$HOME/dotfiles\""
+  echo "📝 Edit config files: chezmoi edit ~/.bashrc"
+  echo "🔄 Apply dotfile changes: chezmoi apply"
+  echo "📊 Check dotfile status: chezmoi status"
   echo "💻 Editor: nvim | Multiplexer: tmux"
   echo "📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)"
   echo "🔨 Update environment: ~/dev/update.sh"
   echo ""
 fi
 
-# Chezmoi aliases with source directory
-alias cz='chezmoi --source="$HOME/dotfiles"'
-alias cza='chezmoi add --source="$HOME/dotfiles"'
-alias cze='chezmoi edit --source="$HOME/dotfiles"'
-alias czd='chezmoi diff --source="$HOME/dotfiles"'
-alias czap='chezmoi apply --source="$HOME/dotfiles"'
+# Chezmoi aliases (using config file instead of --source flag)
+alias cz='chezmoi'
+alias cza='chezmoi add'
+alias cze='chezmoi edit'
+alias czd='chezmoi diff'
+alias czap='chezmoi apply'
 EOL
     
-    # Check if neofetch alias exists, add if not
-    if ! grep -q "alias neofetch='/usr/bin/neofetch'" "$HOME/.bashrc"; then
+    # Check if fastfetch alias exists, add if not
+    if ! grep -q "alias neofetch='fastfetch'" "$HOME/.bashrc"; then
         print_step "Adding neofetch alias to .bashrc..."
-        echo "alias neofetch='/usr/bin/neofetch'" >> "$HOME/.bashrc"
+        echo "alias neofetch='fastfetch'" >> "$HOME/.bashrc"
     fi
     
     # Check if quick reference already exists, add if not
@@ -1044,7 +1093,7 @@ EOL
     
     # Important: Add .bashrc to chezmoi AFTER all modifications
     print_step "Adding .bashrc to chezmoi..."
-    if chezmoi managed --source="$CHEZMOI_SOURCE_DIR" ~/.bashrc &>/dev/null; then
+    if chezmoi managed ~/.bashrc &>/dev/null; then
         # Already managed by chezmoi, update it
         print_step "Updating .bashrc in chezmoi..."
         safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration" --force
@@ -1430,7 +1479,7 @@ EOL
     fi
     
     # Update .bashrc in chezmoi if it's already being managed
-    if chezmoi managed --source="$CHEZMOI_SOURCE_DIR" ~/.bashrc &>/dev/null; then
+    if chezmoi managed ~/.bashrc &>/dev/null; then
         print_step "Updating .bashrc in chezmoi to include NVM configuration..."
         safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration with NVM" --force
         if [ $? -ne 0 ]; then
@@ -1703,20 +1752,20 @@ Chezmoi is a dotfile manager that helps you manage your configuration files acro
 
 ## Basic Commands
 
-Our setup uses a custom source directory at `~/dotfiles`. Always use the `--source` flag as shown below:
+Our setup uses a custom source directory at `~/dotfiles` configured in chezmoi's config file.
 
 ```bash
 # Add a file to be managed by chezmoi
-chezmoi add --source="$HOME/dotfiles" ~/.zshrc
+chezmoi add ~/.zshrc
 
 # Edit a file
-chezmoi edit --source="$HOME/dotfiles" ~/.zshrc
+chezmoi edit ~/.zshrc
 
 # Apply changes
-chezmoi apply --source="$HOME/dotfiles"
+chezmoi apply
 
 # See what changes would be made
-chezmoi diff --source="$HOME/dotfiles"
+chezmoi diff
 ```
 
 ## Using Aliases
@@ -1952,7 +2001,7 @@ if command -v chezmoi > /dev/null; then
             fi
             
             # Apply any updates
-            chezmoi apply --source="$CHEZMOI_SOURCE_DIR"
+            chezmoi apply
         fi
         
         echo -e "${GREEN}✓ Chezmoi and dotfiles updated${NC}"
@@ -1982,7 +2031,7 @@ display_completion_message() {
     if $GITHUB_REPO_CREATED; then
         echo -e "${GREEN}Your dotfiles are backed up to GitHub at: https://github.com/$GITHUB_USERNAME/dotfiles${NC}"
         echo -e "${BLUE}You can clone them on another machine with:${NC}"
-        echo -e "chezmoi init --source=~/dotfiles https://github.com/$GITHUB_USERNAME/dotfiles.git"
+        echo -e "chezmoi init https://github.com/$GITHUB_USERNAME/dotfiles.git"
     elif $USE_GITHUB; then
         echo -e "${YELLOW}GitHub repository setup was not completed.${NC}"
         echo -e "${BLUE}To create it later, run:${NC}"
@@ -2020,22 +2069,22 @@ echo -e "${GREEN}This script will set up a development environment optimized for
 # Bootstrap the environment first
 bootstrap_arch || exit 1
 
-# Set up GitHub information first
-setup_github_info || exit 1
-
 # Step 1: Initial setup
 setup_workspace || exit 1
 update_system || exit 1
 install_core_deps || exit 1
 
+# Set up GitHub information after core deps are installed
+setup_github_info || exit 1
+
 # Step 2: Set up chezmoi early for dotfile management
 setup_chezmoi || exit 1
 
 # Step 3: Install basic tools
-install_neofetch || exit 1
-install_neovim || exit 1
-setup_git_config || exit 1
-setup_zsh || exit 1
+install_fastfetch || print_warning "Fastfetch installation failed, continuing..."
+install_neovim || { print_error "Neovim installation failed"; exit 1; }
+setup_git_config || print_warning "Git config setup failed, continuing..."
+setup_zsh || { print_error "Zsh setup failed"; exit 1; }
 
 # Step 4: Install Node.js before configuring bashrc
 setup_nodejs || exit 1
