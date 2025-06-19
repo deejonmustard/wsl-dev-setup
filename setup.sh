@@ -15,13 +15,14 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.0.3"
+SCRIPT_VERSION="0.0.4"
 SETUP_DIR="$HOME/dev"
 CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 GITHUB_USERNAME=""
 GITHUB_TOKEN=""
 USE_GITHUB=false
 GITHUB_REPO_CREATED=false
+INTERACTIVE_MODE=false
 
 # --- Utility functions ---
 
@@ -85,8 +86,13 @@ bootstrap_arch() {
         fi
         
         # Update system first
-        print_step "Updating system packages..."
-        pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        if [ "$INTERACTIVE_MODE" = false ]; then
+            print_step "Updating system packages (auto-accepting all prompts)..."
+            pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        else
+            print_step "Updating system packages..."
+            pacman -Syu --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        fi
         
         # Generate locale to fix perl warnings
         print_step "Generating locale..."
@@ -96,8 +102,13 @@ bootstrap_arch() {
         
         # Install sudo if not present
         if ! command_exists sudo; then
-            print_step "Installing sudo..."
-            pacman -S --noconfirm --needed sudo 2>&1 | grep -v "warning: insufficient columns"
+            if [ "$INTERACTIVE_MODE" = false ]; then
+                print_step "Installing sudo (auto-accepting prompts)..."
+                pacman -S --noconfirm --needed sudo 2>&1 | grep -v "warning: insufficient columns"
+            else
+                print_step "Installing sudo..."
+                pacman -S --needed sudo 2>&1 | grep -v "warning: insufficient columns"
+            fi
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
                 print_error "Failed to install sudo"
                 exit 1
@@ -185,6 +196,8 @@ run_elevated() {
         sudo "$@"
     fi
 }
+
+
 
 # Function to safely add a file to chezmoi
 safe_add_to_chezmoi() {
@@ -274,9 +287,13 @@ setup_workspace() {
 # Update system packages
 update_system() {
     print_header "Updating System Packages"
-    print_step "Updating package database..."
-    # Force non-interactive mode and suppress prompts
-    run_elevated pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+    if [ "$INTERACTIVE_MODE" = false ]; then
+        print_step "Updating package database (auto-accepting all prompts)..."
+        run_elevated pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+    else
+        print_step "Updating package database..."
+        run_elevated pacman -Syu --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+    fi
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
         print_error "Failed to update system packages"
         return 1
@@ -2091,10 +2108,41 @@ display_completion_message() {
 }
 
 # --- Main Script Execution ---
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--interactive)
+            INTERACTIVE_MODE=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  -i, --interactive  Run in interactive mode (prompts for package installation)"
+            echo "  -h, --help        Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h or --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${PURPLE}| WSL Development Environment Setup v${SCRIPT_VERSION} |${NC}"
 echo -e "${PURPLE}===============================================${NC}"
 echo -e "${GREEN}This script will set up a development environment optimized for WSL Arch Linux${NC}"
+
+if [ "$INTERACTIVE_MODE" = true ]; then
+    echo -e "${CYAN}Running in INTERACTIVE mode - you'll be prompted for each package installation${NC}\n"
+else
+    echo -e "${YELLOW}Note: This script runs in non-interactive mode. All package installations will proceed automatically.${NC}"
+    echo -e "${YELLOW}You'll see [Y/n] prompts but they will be auto-answered with 'yes'.${NC}"
+    echo -e "${YELLOW}To run in interactive mode, use: ./setup.sh --interactive${NC}\n"
+fi
 
 # Bootstrap the environment first
 bootstrap_arch || exit 1

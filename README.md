@@ -16,6 +16,7 @@ A simple script to set up a beginner-friendly development environment for WSL Ar
 - **Seamless GitHub integration** via GitHub CLI
 - **Organized directory structure** with configuration in ~/dev and dotfiles in ~/dotfiles
 - **Fastfetch** for system information display (modern neofetch alternative)
+- **Interactive and non-interactive modes** for flexible installation control
 
 ## Quick Install
 
@@ -44,6 +45,9 @@ curl -o setup.sh https://raw.githubusercontent.com/deejonmustard/wsl-dev-setup/m
 # Make it executable and run
 chmod +x setup.sh
 ./setup.sh
+
+# Optional: Run in interactive mode (prompts for each package)
+./setup.sh --interactive
 ```
 
 The script will:
@@ -223,10 +227,24 @@ This setup is optimized for Arch Linux on WSL and uses:
 - Base development tools from `base-devel` package group
 - Automatic bootstrap process for fresh installations
 
+## Script Options
+
+### Non-Interactive Mode (Default)
+By default, the script runs in non-interactive mode where all package installations are automatically approved. You'll see `[Y/n]` prompts from pacman, but they will be auto-answered with 'yes'.
+
+### Interactive Mode
+If you prefer to manually approve each package installation:
+```bash
+./setup.sh --interactive
+```
+
+This allows you to review and approve/reject each package installation individually.
+
 ## Known Issues
 
 - **Claude Code Installation**: The npm package `@anthropic-ai/claude-code` might not be available in the public npm registry or may require authentication. The script will skip this installation if it fails. You can try installing it manually later if needed.
 - **Terminal Width Warnings**: You might see "insufficient columns available for table display" warnings from pacman. These are cosmetic and don't affect functionality.
+- **Auto-answered Prompts**: In non-interactive mode (default), you'll see `[Y/n]` prompts that are automatically answered. This is expected behavior.
 
 ## License
 
