@@ -15,7 +15,7 @@ PURPLE='\033[0;35m'  # Titles
 CYAN='\033[0;36m'    # Section headers
 
 # --- Global configuration ---
-SCRIPT_VERSION="0.0.3"
+SCRIPT_VERSION="0.0.4"
 SETUP_DIR="$HOME/dev"
 CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
 GITHUB_USERNAME=""
@@ -1521,7 +1521,21 @@ EOL
 
 # Setup Claude Code from Anthropic with chezmoi integration
 setup_claude_code() {
-    print_header "Installing Claude Code (OPTIONAL - May take time)"
+    print_header "Claude Code Installation (OPTIONAL)"
+    
+    print_warning "Claude Code is an AI assistant for coding from Anthropic"
+    print_warning "Note: This installation may take several minutes and could potentially hang"
+    print_warning "The package may require authentication or may not be publicly available"
+    
+    echo -e "\n${BLUE}Would you like to try installing Claude Code? (y/n) [n]${NC}"
+    read -r install_claude
+    install_claude=${install_claude:-n}  # Default to no
+    
+    if [[ ! "$install_claude" =~ ^[Yy]$ ]]; then
+        print_step "Skipping Claude Code installation"
+        print_warning "You can install it manually later with: npm install -g @anthropic-ai/claude-code"
+        return 0
+    fi
     
     # First ensure Node.js is properly set up
     print_step "Checking Node.js installation..."
@@ -1555,9 +1569,15 @@ setup_claude_code() {
         return 0
     fi
     
+    # Give user one more chance to skip before the potentially long installation
+    echo -e "\n${YELLOW}Claude Code installation will now begin. This may take several minutes.${NC}"
+    echo -e "${YELLOW}Press Ctrl+C now if you want to skip this step.${NC}"
+    echo -e "${BLUE}Press Enter to continue with installation...${NC}"
+    read -r
+    
     # Install Claude Code with timeout
     print_step "Installing Claude Code (this may take a few minutes)..."
-    print_warning "If this hangs, press Ctrl+C to skip and continue with the rest of the setup"
+    print_warning "If this hangs for more than 2 minutes, it will automatically timeout"
     
     # Try installation with a timeout
     timeout 120 npm install -g @anthropic-ai/claude-code --no-os-check 2>&1
@@ -1570,7 +1590,8 @@ setup_claude_code() {
     elif [ $result -ne 0 ]; then
         print_warning "Failed to install Claude Code"
         print_warning "This is optional and won't affect the rest of your setup"
-        print_warning "You can try installing it manually later"
+        print_warning "You can try installing it manually later with:"
+        print_warning "npm install -g @anthropic-ai/claude-code"
         return 0
     fi
     
@@ -2175,8 +2196,10 @@ setup_wsl_utilities || exit 1
 setup_bashrc_helper || exit 1
 
 # Step 6: Dev tools and documentation
-setup_claude_code || print_warning "Claude Code installation failed, continuing..."
-create_claude_code_docs || print_warning "Claude Code docs creation failed, continuing..."
+setup_claude_code || print_warning "Claude Code installation skipped or failed, continuing..."
+if command_exists claude; then
+    create_claude_code_docs || print_warning "Claude Code docs creation failed, continuing..."
+fi
 create_chezmoi_docs || exit 1
 create_component_docs || exit 1
 create_update_script || exit 1

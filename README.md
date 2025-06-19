@@ -11,7 +11,7 @@ A simple script to set up a beginner-friendly development environment for WSL Ar
 - Tmux for terminal multiplexer
 - Chezmoi for dotfile management across Windows and WSL
 - Node.js via NVM
-- Claude Code AI assistant (optional)
+- Claude Code AI assistant (optional - requires user confirmation)
 - Core development tools and utilities
 - **Seamless GitHub integration** via GitHub CLI
 - **Organized directory structure** with configuration in ~/dev and dotfiles in ~/dotfiles
@@ -69,7 +69,7 @@ If you create a new user, you'll need to:
 - **Zsh**: Enhanced shell with Oh My Zsh and plugins
 - **Chezmoi**: Dotfile manager to sync configs between WSL and Windows
 - **NVM**: Node Version Manager for JavaScript development
-- **Claude Code**: AI assistant for coding (optional - may require manual installation)
+- **Claude Code**: AI assistant for coding (optional - prompts for confirmation during setup)
 - **WSL Utilities**: Helper scripts for Windows integration
 - **GitHub CLI**: Seamless dotfiles repository management
 - **Fastfetch**: Modern system information tool (replaces the discontinued neofetch)
@@ -243,7 +243,7 @@ This allows you to review and approve/reject each package installation individua
 
 ## Known Issues
 
-- **Claude Code Installation**: The npm package `@anthropic-ai/claude-code` might not be available in the public npm registry or may require authentication. The script will skip this installation if it fails. You can try installing it manually later if needed.
+- **Claude Code Installation**: The npm package `@anthropic-ai/claude-code` is optional and requires user confirmation during setup. It might not be available in the public npm registry or may require authentication. The installation has a 2-minute timeout to prevent hanging. You can always install it manually later with `npm install -g @anthropic-ai/claude-code`.
 - **Terminal Width Warnings**: You might see "insufficient columns available for table display" warnings from pacman. These are cosmetic and don't affect functionality.
 - **Auto-answered Prompts**: In non-interactive mode (default), you'll see `[Y/n]` prompts that are automatically answered. This is expected behavior.
 
