@@ -355,6 +355,61 @@ setup_workspace() {
     return 0
 }
 
+# Optimize mirrors for better download speeds
+optimize_mirrors() {
+    print_header "Optimizing Package Mirrors"
+    
+    # Install reflector if not already installed
+    if ! command_exists reflector; then
+        print_step "Installing reflector for mirror optimization..."
+        run_elevated pacman -S --noconfirm --needed reflector 2>&1 | grep -v "warning: insufficient columns"
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            print_warning "Failed to install reflector, continuing with default mirrors"
+            return 0
+        fi
+    fi
+    
+    # Backup current mirrorlist
+    print_step "Backing up current mirrorlist..."
+    run_elevated cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
+    
+    # Generate optimized mirrorlist
+    print_step "Generating optimized mirrorlist (this may take a moment)..."
+    
+    # Use a comprehensive reflector command that works well globally
+    # Based on ArcoLinux recommendations with timeout protection
+    if timeout 120 run_elevated reflector \
+        --age 6 \
+        --latest 20 \
+        --fastest 20 \
+        --threads 20 \
+        --sort rate \
+        --protocol https \
+        --save /etc/pacman.d/mirrorlist; then
+        print_success "Mirrors optimized successfully"
+    else
+        print_warning "Mirror optimization timed out or failed, using fallback approach"
+        
+        # Fallback: Use a simple fast mirror list
+        print_step "Using fallback mirror configuration..."
+        run_elevated tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+# Fallback mirror list - globally fast mirrors
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
+Server = https://arch.mirror.constant.com/$repo/os/$arch
+Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
+EOF
+        print_success "Fallback mirrors configured"
+    fi
+    
+    # Update package database with new mirrors
+    print_step "Updating package database with optimized mirrors..."
+    run_elevated pacman -Sy --noconfirm 2>&1 | grep -v "warning: insufficient columns"
+    
+    return 0
+}
+
 # Update system packages
 update_system() {
     print_header "Updating System Packages"
@@ -3566,6 +3621,7 @@ select_theme || SELECTED_THEME="minimal"
 
 # Step 1: Initial setup
 setup_workspace || exit 1
+optimize_mirrors || exit 1
 update_system || exit 1
 install_core_deps || exit 1
 
