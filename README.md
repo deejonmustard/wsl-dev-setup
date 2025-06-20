@@ -29,12 +29,13 @@ A comprehensive development environment setup script for WSL Arch Linux with uni
 - **starship** - Cross-shell prompt with custom theming
 
 ### Enhanced Features
-- **Theme Selection** - Choose between Rose Pine, Catppuccin, Tokyo Night, Nord, or Dracula
+- **Theme Selection** - Choose between Rose Pine, Catppuccin, Tokyo Night, Nord, Dracula, or Minimal (clean base)
 - **Nerd Fonts** - JetBrains Mono with icon support
-- **Terminal Configs** - Pre-configured WezTerm and Alacritty with transparency
+- **Terminal Configs** - Pre-configured WezTerm with theme support
 - **WSL Optimizations** - Performance tweaks and clipboard integration
 - **Cursor IDE Support** - Seamless integration with Windows installation
 - **Cross-Platform Dotfiles** - Edit from Windows or WSL with automatic syncing
+- **Neovim in Dotfiles** - Complete Neovim configuration managed by chezmoi
 
 ## Quick Install
 
@@ -169,8 +170,9 @@ The setup includes a theme selector with popular options:
 - **Tokyo Night** - Clean and modern
 - **Nord** - Arctic, north-bluish theme
 - **Dracula** - Dark theme with vibrant colors
+- **Minimal/None** - Clean Arch Linux base for custom theming
 
-All themes are configured with 0.9 transparency for a modern look.
+Themed setups include terminal styling, Neovim themes, and modern CLI tool aliases. The minimal option provides a clean base that you can customize yourself.
 
 ## Cross-Platform Workflows
 
@@ -263,6 +265,8 @@ Manual control over each package installation:
 - **Terminal Width**: Pacman warnings about columns are cosmetic
 - **Node.js Not Found**: Run `source ~/.nvm/nvm.sh`
 - **Cursor Not Working**: Install from https://cursor.sh then run `~/bin/cursor-path.sh`
+- **Cargo Timeouts**: Network issues during Rust tool installation are handled gracefully with timeouts
+- **Chezmoi Conflicts**: Script automatically resolves conflicting dotfiles during setup
 
 ### Getting Help
 After installation, comprehensive documentation is available:

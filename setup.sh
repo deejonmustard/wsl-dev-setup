@@ -90,14 +90,15 @@ ensure_dir() {
 
 # Interactive theme selector
 select_theme() {
-    print_header "Select Your Preferred Theme"
+    print_header "Select Your Preferred Setup Style"
     
-    echo -e "${BLUE}Choose a theme:${NC}"
-    echo "1) Rose Pine"
-    echo "2) Catppuccin"
-    echo "3) Tokyo Night"
-    echo "4) Nord"
-    echo "5) Dracula"
+    echo -e "${BLUE}Choose your setup approach:${NC}"
+    echo "1) Rose Pine (Themed setup with modern aesthetics)"
+    echo "2) Catppuccin (Themed setup)"
+    echo "3) Tokyo Night (Themed setup)"
+    echo "4) Nord (Themed setup)"
+    echo "5) Dracula (Themed setup)"
+    echo "6) Minimal/None (Clean Arch Linux - build your own theme)"
     
     read -r theme_choice
     
@@ -107,11 +108,16 @@ select_theme() {
         3) SELECTED_THEME="tokyo-night" ;;
         4) SELECTED_THEME="nord" ;;
         5) SELECTED_THEME="dracula" ;;
-        *) SELECTED_THEME="rose-pine" ;;
+        6) SELECTED_THEME="minimal" ;;
+        *) SELECTED_THEME="minimal" ;;
     esac
     
     export SELECTED_THEME
-    print_success "Selected theme: $SELECTED_THEME"
+    if [ "$SELECTED_THEME" = "minimal" ]; then
+        print_success "Selected: Minimal setup - clean Arch Linux base"
+    else
+        print_success "Selected theme: $SELECTED_THEME"
+    fi
 }
 
 # --- Bootstrap Functions ---
@@ -419,8 +425,19 @@ install_modern_cli_tools() {
     # Only try cargo installs if cargo is available and for tools not in pacman
     if command_exists cargo; then
         print_step "Installing additional tools via Cargo..."
-        # Only install tools that aren't available in pacman
-        cargo install bottom zoxide || print_warning "Some Cargo installations failed, continuing..."
+        # Set cargo to use fewer parallel downloads to avoid timeouts
+        export CARGO_NET_RETRY=3
+        export CARGO_NET_GIT_FETCH_WITH_CLI=true
+        
+        # Try to install bottom with timeout protection
+        print_step "Installing bottom (system monitor)..."
+        timeout 600 cargo install bottom || print_warning "Bottom installation failed or timed out, continuing..."
+        
+        # Try to install zoxide with timeout protection
+        print_step "Installing zoxide (smarter cd)..."
+        timeout 600 cargo install zoxide || print_warning "Zoxide installation failed or timed out, continuing..."
+        
+        print_step "Cargo tool installations completed (some may have been skipped due to network issues)"
     else
         print_warning "Cargo not available, skipping Rust-based tool installations"
         print_warning "You can install Rust later with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
@@ -432,23 +449,37 @@ install_modern_cli_tools() {
 
 # Setup modern terminal emulator configurations
 setup_modern_terminal() {
-    print_header "Installing Modern Terminal Emulator"
+    print_header "Installing Modern Terminal Dependencies"
     
     # Install dependencies for terminal emulators
     run_elevated pacman -S --noconfirm --needed \
         cmake freetype2 fontconfig pkg-config \
         2>&1 | grep -v "warning: insufficient columns"
     
-    # Create config directories
-    ensure_dir "$HOME/.config/wezterm"
-    ensure_dir "$HOME/.config/alacritty"
-    
-    # Create WezTerm config with Rose Pine
-    cat > "$HOME/.config/wezterm/wezterm.lua" << 'EOF'
+    # Only create themed configs if not minimal setup
+    if [ "$SELECTED_THEME" != "minimal" ]; then
+        # Create config directories
+        ensure_dir "$HOME/.config/wezterm"
+        
+        # Create WezTerm config with selected theme
+        print_step "Creating WezTerm configuration..."
+        cat > "$HOME/.config/wezterm/wezterm.lua" << EOF
 local wezterm = require 'wezterm'
 local config = {}
 
-config.color_scheme = 'rose-pine-moon'
+$(if [ "$SELECTED_THEME" = "rose-pine" ]; then
+    echo "config.color_scheme = 'rose-pine-moon'"
+elif [ "$SELECTED_THEME" = "catppuccin" ]; then
+    echo "config.color_scheme = 'Catppuccin Mocha'"
+elif [ "$SELECTED_THEME" = "tokyo-night" ]; then
+    echo "config.color_scheme = 'Tokyo Night'"
+elif [ "$SELECTED_THEME" = "nord" ]; then
+    echo "config.color_scheme = 'Nord (Gogh)'"
+elif [ "$SELECTED_THEME" = "dracula" ]; then
+    echo "config.color_scheme = 'Dracula'"
+else
+    echo "-- Default theme"
+fi)
 config.font = wezterm.font('JetBrains Mono')
 config.font_size = 11.0
 config.window_background_opacity = 0.9
@@ -464,39 +495,15 @@ config.hide_tab_bar_if_only_one_tab = true
 
 return config
 EOF
-
-    # Create Alacritty config
-    cat > "$HOME/.config/alacritty/alacritty.toml" << 'EOF'
-[window]
-opacity = 0.9
-padding = { x = 18, y = 18 }
-decorations = "full"
-dynamic_title = true
-
-[font]
-size = 11.0
-normal = { family = "JetBrains Mono", style = "Regular" }
-
-[colors.primary]
-background = '#232136'
-foreground = '#e0def4'
-
-[colors.normal]
-black = '#393552'
-red = '#eb6f92'
-green = '#3e8fb0'
-yellow = '#f6c177'
-blue = '#9ccfd8'
-magenta = '#c4a7e7'
-cyan = '#ea9a97'
-white = '#e0def4'
-EOF
+        
+        # Add config to chezmoi
+        safe_add_to_chezmoi "$HOME/.config/wezterm/wezterm.lua" "WezTerm configuration" || true
+        print_success "WezTerm configuration created"
+    else
+        print_step "Minimal setup selected - skipping terminal theme configuration"
+        print_step "You can configure your terminal manually later"
+    fi
     
-    # Add configs to chezmoi
-    safe_add_to_chezmoi "$HOME/.config/wezterm/wezterm.lua" "WezTerm configuration" || true
-    safe_add_to_chezmoi "$HOME/.config/alacritty/alacritty.toml" "Alacritty configuration" || true
-    
-    print_success "Terminal emulator configs created"
     return 0
 }
 
@@ -687,7 +694,24 @@ setup_nvim_config() {
     
     cp -r "$TEMP_NVIM_DIR" "$HOME/.config/nvim"
     
-    chezmoi add "$HOME/.config/nvim"
+    # Add the entire nvim config directory to chezmoi for complete dotfile management
+    print_step "Adding Neovim configuration to chezmoi dotfiles..."
+    if chezmoi add "$HOME/.config/nvim"; then
+        print_success "Neovim configuration added to chezmoi"
+        
+        # Add to git if in a git repository
+        if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
+            cd "$CHEZMOI_SOURCE_DIR" || return 1
+            if git add . && git commit -m "Add Neovim Kickstart configuration"; then
+                print_step "Neovim configuration committed to dotfiles repository"
+            else
+                print_warning "Failed to commit Neovim configuration to git"
+            fi
+            cd "$HOME" || return 1
+        fi
+    else
+        print_warning "Failed to add Neovim configuration to chezmoi, but installation succeeded"
+    fi
     
     rm -rf "$TEMP_NVIM_DIR"
     
@@ -695,24 +719,34 @@ setup_nvim_config() {
     return 0
 }
 
-# Enhanced Neovim setup with Rose Pine theme
+# Enhanced Neovim setup with theme
 setup_enhanced_nvim() {
     print_header "Setting up Enhanced Neovim Configuration"
     
-    # Ask if user wants Rose Pine theme
-    echo -e "\n${BLUE}Would you like to add Rose Pine theme to your Neovim setup? (y/n) [y]${NC}"
-    read -r add_rose_pine
-    add_rose_pine=${add_rose_pine:-y}
+    # Skip theme setup for minimal installations
+    if [ "$SELECTED_THEME" = "minimal" ]; then
+        print_step "Minimal setup selected - skipping Neovim theme configuration"
+        print_step "Your Neovim uses the default Kickstart configuration"
+        print_step "You can add themes and plugins manually later"
+        return 0
+    fi
     
-    if [[ "$add_rose_pine" =~ ^[Yy]$ ]]; then
-        print_step "Adding Rose Pine configuration to Neovim..."
+    # Ask if user wants their selected theme for Neovim
+    echo -e "\n${BLUE}Would you like to add the $SELECTED_THEME theme to your Neovim setup? (y/n) [y]${NC}"
+    read -r add_theme
+    add_theme=${add_theme:-y}
+    
+    if [[ "$add_theme" =~ ^[Yy]$ ]]; then
+        print_step "Adding $SELECTED_THEME configuration to Neovim..."
         
         # Create custom plugins directory
         ensure_dir "$HOME/.config/nvim/lua/custom/plugins"
         
-        # Create Rose Pine config
-        cat > "$HOME/.config/nvim/lua/custom/plugins/theme.lua" << 'EOF'
+        # Create theme config based on selected theme
+        cat > "$HOME/.config/nvim/lua/custom/plugins/theme.lua" << EOF
 return {
+$(if [ "$SELECTED_THEME" = "rose-pine" ]; then
+cat << 'ROSE_PINE'
   {
     'rose-pine/neovim',
     name = 'rose-pine',
@@ -730,6 +764,61 @@ return {
       vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
     end,
   },
+ROSE_PINE
+elif [ "$SELECTED_THEME" = "catppuccin" ]; then
+cat << 'CATPPUCCIN'
+  {
+    "catppuccin/nvim",
+    name = "catppuccin",
+    priority = 1000,
+    config = function()
+      require("catppuccin").setup({
+        flavour = "mocha",
+        transparent_background = true,
+      })
+      vim.cmd('colorscheme catppuccin')
+    end,
+  },
+CATPPUCCIN
+elif [ "$SELECTED_THEME" = "tokyo-night" ]; then
+cat << 'TOKYO_NIGHT'
+  {
+    "folke/tokyonight.nvim",
+    priority = 1000,
+    config = function()
+      require("tokyonight").setup({
+        style = "night",
+        transparent = true,
+      })
+      vim.cmd('colorscheme tokyonight')
+    end,
+  },
+TOKYO_NIGHT
+elif [ "$SELECTED_THEME" = "nord" ]; then
+cat << 'NORD'
+  {
+    "shaunsingh/nord.nvim",
+    priority = 1000,
+    config = function()
+      vim.g.nord_disable_background = true
+      vim.cmd('colorscheme nord')
+    end,
+  },
+NORD
+elif [ "$SELECTED_THEME" = "dracula" ]; then
+cat << 'DRACULA'
+  {
+    "Mofiqul/dracula.nvim",
+    priority = 1000,
+    config = function()
+      require("dracula").setup({
+        transparent_bg = true,
+      })
+      vim.cmd('colorscheme dracula')
+    end,
+  },
+DRACULA
+fi)
 }
 EOF
         
@@ -803,45 +892,20 @@ return {
 EOF
         
         # Add the configurations to chezmoi
-        safe_add_to_chezmoi "$HOME/.config/nvim/lua/custom/plugins/theme.lua" "Neovim Rose Pine theme" || true
+        safe_add_to_chezmoi "$HOME/.config/nvim/lua/custom/plugins/theme.lua" "Neovim $SELECTED_THEME theme" || true
         safe_add_to_chezmoi "$HOME/.config/nvim/lua/custom/plugins/ui.lua" "Neovim UI enhancements" || true
         
-        print_success "Rose Pine theme added to Neovim configuration"
+        print_success "$SELECTED_THEME theme added to Neovim configuration"
         print_step "Theme will be loaded on next Neovim start"
         print_step "Run ':Lazy' in Neovim to install the theme"
     else
-        print_step "Skipping Rose Pine theme setup"
+        print_step "Skipping theme setup - using default Kickstart configuration"
     fi
     
     return 0
 }
 
-# Setup Ansible
-setup_ansible() {
-    print_header "Setting up Ansible"
-    if ! command_exists ansible; then
-        print_step "Installing Ansible..."
-        run_elevated pacman -S --noconfirm --needed ansible 2>&1 | grep -v "warning: insufficient columns"
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            print_error "Failed to install Ansible"
-            return 1
-        fi
-        print_success "Ansible installed successfully!"
-    else
-        print_step "Ansible is already installed"
-    fi
-    
-    # Create Ansible directory structure
-    ensure_dir "$SETUP_DIR/ansible/roles/core-tools/tasks" || return 1
-    ensure_dir "$SETUP_DIR/ansible/roles/shell/tasks" || return 1
-    ensure_dir "$SETUP_DIR/ansible/roles/tmux/tasks" || return 1
-    ensure_dir "$SETUP_DIR/ansible/roles/wsl-specific/tasks" || return 1
-    ensure_dir "$SETUP_DIR/ansible/roles/git-config/tasks" || return 1
-    ensure_dir "$SETUP_DIR/ansible/roles/nodejs/tasks" || return 1
-    
-    print_success "Ansible setup completed"
-    return 0
-}
+
 
 # Determine chezmoi source directory based on user preference
 determine_chezmoi_source_dir() {
@@ -1201,6 +1265,16 @@ setup_zshrc() {
     print_header "Creating Zsh configuration file with Chezmoi"
     print_step "Creating Zsh configuration..."
     
+    # Clean up any existing conflicting files in chezmoi source directory
+    if [ -f "$CHEZMOI_SOURCE_DIR/dot_zshrc" ]; then
+        print_step "Removing existing dot_zshrc from chezmoi source..."
+        rm -f "$CHEZMOI_SOURCE_DIR/dot_zshrc"
+    fi
+    if [ -f "$CHEZMOI_SOURCE_DIR/dot_zshrc.tmpl" ]; then
+        print_step "Removing existing dot_zshrc.tmpl from chezmoi source..."
+        rm -f "$CHEZMOI_SOURCE_DIR/dot_zshrc.tmpl"
+    fi
+    
     # Create a temporary file with our zshrc content
     TEMP_ZSHRC=$(mktemp)
     
@@ -1240,22 +1314,27 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 export FZF_CTRL_T_COMMAND="\$FZF_DEFAULT_COMMAND"
 
-# Run fastfetch and show quick reference at startup
-if command -v fastfetch >/dev/null 2>&1; then
-  fastfetch
-  
-  # Display a brief helpful summary after fastfetch
-  echo ""
-  echo "🚀 WSL Dev Environment - Quick Reference"
-  echo "───────────────────────────────────────"
-  echo "📝 Edit config files: chezmoi edit ~/.zshrc"
-  echo "🔄 Apply dotfile changes: chezmoi apply"
-  echo "📊 Check dotfile status: chezmoi status"
-  echo "💻 Editor: nvim | Multiplexer: tmux | Shell: zsh"
-  echo "📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)"
-  echo "🔨 Update environment: ~/dev/update.sh"
-  echo ""
-fi
+$(if [ "$SELECTED_THEME" != "minimal" ]; then
+echo "# Run fastfetch and show quick reference at startup"
+echo "if command -v fastfetch >/dev/null 2>&1; then"
+echo "  fastfetch"
+echo "  "
+echo "  # Display a brief helpful summary after fastfetch"
+echo "  echo \"\""
+echo "  echo \"🚀 WSL Dev Environment - Quick Reference\""
+echo "  echo \"───────────────────────────────────────\""
+echo "  echo \"📝 Edit config files: chezmoi edit ~/.zshrc\""
+echo "  echo \"🔄 Apply dotfile changes: chezmoi apply\""
+echo "  echo \"📊 Check dotfile status: chezmoi status\""
+echo "  echo \"💻 Editor: nvim | Multiplexer: tmux | Shell: zsh\""
+echo "  echo \"📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)\""
+echo "  echo \"🔨 Update environment: ~/dev/update.sh\""
+echo "  echo \"\""
+echo "fi"
+else
+echo "# Minimal setup - no fastfetch banner"
+echo "echo \"WSL Arch Linux ready - configure as needed\""
+fi)
 
 # Editor aliases for WSL
 alias cursor='\$HOME/bin/cursor-wrapper.sh'
@@ -1289,9 +1368,19 @@ fi
 # Cross-platform aliases - work on both Windows and Linux
 alias vim='nvim'
 alias v='nvim'
-alias ls='ls --color=auto'
-alias ll='ls -la'
-alias la='ls -A'
+$(if [ "$SELECTED_THEME" != "minimal" ]; then
+echo "alias ls='exa --icons --group-directories-first'"
+echo "alias ll='exa -l --icons --group-directories-first'"
+echo "alias la='exa -la --icons --group-directories-first'"
+echo "alias tree='exa --tree --icons'"
+echo "alias cat='bat'"
+echo "alias find='fd'"
+echo "alias grep='rg'"
+else
+echo "alias ls='ls --color=auto'"
+echo "alias ll='ls -la'"
+echo "alias la='ls -A'"
+fi)
 alias ..='cd ..'
 alias ...='cd ../..'
 alias c='clear'
@@ -1316,6 +1405,14 @@ alias cze='chezmoi edit'
 alias czd='chezmoi diff'
 alias czap='chezmoi apply'
 alias czup='chezmoi update'
+
+$(if [ "$SELECTED_THEME" != "minimal" ]; then
+echo "# Better cd with zoxide (if available)"
+echo "if command -v zoxide >/dev/null 2>&1; then"
+echo "    eval \"\$(zoxide init zsh)\""
+echo "    alias cd='z'"
+echo "fi"
+fi)
 EOL
     
     if [ $? -ne 0 ]; then
@@ -1330,25 +1427,23 @@ EOL
     # Check if ~/.zshrc already exists and backup if needed
     backup_file "$HOME/.zshrc"
     
-    # Copy our template to home directory first
-    cp "$TEMP_ZSHRC" "$HOME/.zshrc"
-    
-    # Also add as a template to chezmoi source directory for cross-platform use
+    # Copy our template to chezmoi source directory as template
     cp "$TEMP_ZSHRC" "$CHEZMOI_SOURCE_DIR/dot_zshrc.tmpl"
     
-    # Add to chezmoi using the safe function
-    safe_add_to_chezmoi "$HOME/.zshrc" "Zsh configuration"
-    local result=$?
+    # Apply it to create the actual file
+    cd "$HOME" && chezmoi apply dot_zshrc
+    
+    # Verify it was applied correctly
+    if [ -f "$HOME/.zshrc" ]; then
+        print_success "Zsh configuration created and managed by chezmoi"
+    else
+        print_error "Failed to apply zshrc from chezmoi"
+        return 1
+    fi
     
     # Cleanup
     rm -f "$TEMP_ZSHRC"
     
-    if [ $result -ne 0 ]; then
-        print_error "Failed to add zshrc to chezmoi"
-        return 1
-    fi
-    
-    print_success "Zsh configuration created and managed by chezmoi"
     return 0
 }
 
@@ -1362,10 +1457,24 @@ setup_starship_prompt() {
         curl -sS https://starship.rs/install.sh | sh -s -- -y
     fi
     
-    # Create themed config based on selected theme
+    # Create config based on selected theme
     ensure_dir "$HOME/.config"
     
-    if [ "$SELECTED_THEME" = "rose-pine" ]; then
+    if [ "$SELECTED_THEME" = "minimal" ]; then
+        # Minimal starship config
+        cat > "$HOME/.config/starship.toml" << 'EOF'
+# Minimal Starship Configuration
+format = """$directory$git_branch$git_status$character"""
+
+[character]
+success_symbol = '[❯](bold green)'
+error_symbol = '[❯](bold red)'
+
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+EOF
+    elif [ "$SELECTED_THEME" = "rose-pine" ]; then
         cat > "$HOME/.config/starship.toml" << 'EOF'
 format = """
 [](#ea9a97)\
@@ -1413,13 +1522,16 @@ success_symbol = '[➜](bold fg:#3e8fb0)'
 error_symbol = '[➜](bold fg:#eb6f92)'
 EOF
     else
-        # Default minimal config for other themes
+        # Default config for other themes
         cat > "$HOME/.config/starship.toml" << 'EOF'
 format = """$username$directory$git_branch$git_status$time$line_break$character"""
 
 [character]
 success_symbol = '[➜](bold green)'
 error_symbol = '[➜](bold red)'
+
+[directory]
+truncation_length = 3
 EOF
     fi
     
@@ -3451,7 +3563,7 @@ fi
 bootstrap_arch || exit 1
 
 # Theme selection
-select_theme || SELECTED_THEME="rose-pine"
+select_theme || SELECTED_THEME="minimal"
 
 # Step 1: Initial setup
 setup_workspace || exit 1
