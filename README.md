@@ -35,7 +35,6 @@ A comprehensive development environment setup script for WSL Arch Linux that get
 
 ### WSL Integration & Modern Tooling
 - **Cursor IDE Support** - Seamless integration with Windows installation
-- **Ghostty Terminal** - Modern, fast terminal installed via pacman
 - **GitHub Integration** - Authentication and repository management
 - **Cross-Platform Utilities** - Windows Explorer integration, clipboard sync
 - **Performance Optimizations** - WSL-specific tweaks and enhancements

@@ -294,19 +294,11 @@ safe_add_to_chezmoi() {
     
     print_step "Managing $description with chezmoi..."
     if [ "$force" = "--force" ]; then
-        # Use --force and auto-answer yes to template attribute questions
-        if [ "$INTERACTIVE_MODE" = false ]; then
-            printf "yes\n" | chezmoi add --force "$target_file" 2>/dev/null
-        else
-            chezmoi add --force "$target_file"
-        fi
+        # Use --force and auto-answer no to template attribute questions (avoid template processing)
+        printf "no\n" | chezmoi add --force "$target_file" 2>/dev/null || true
     else
-        # Auto-answer yes to template attribute questions in non-interactive mode
-        if [ "$INTERACTIVE_MODE" = false ]; then
-            printf "yes\n" | chezmoi add "$target_file" 2>/dev/null
-        else
-            chezmoi add "$target_file"
-        fi
+        # Auto-answer no to template attribute questions (avoid template processing)
+        printf "no\n" | chezmoi add "$target_file" 2>/dev/null || true
     fi
     
     if [ $? -eq 0 ]; then
@@ -906,7 +898,7 @@ install_modern_cli_tools() {
     print_step "Installing modern CLI tools from package manager..."
     
     # Many of these tools are available in pacman and more reliable to install
-    install_packages_robust "eza bat fd ripgrep starship lazygit ranger ncdu duf gdu" "modern CLI tools"
+    install_packages_robust "eza bat fd ripgrep starship lazygit ranger ncdu duf gdu zoxide" "modern CLI tools"
     
     # Only try cargo installs if cargo is available and for tools not in pacman
     if command_exists cargo; then
@@ -1029,6 +1021,13 @@ EOF
     fi
     ln -sf "$mpd_config_dir" "$HOME/.config/mpd"
     
+    # Verify the symlink works by checking if config is accessible
+    if [ ! -f "$HOME/.config/mpd/mpd.conf" ]; then
+        print_warning "MPD config symlink failed, creating direct config in ~/.config/mpd"
+        ensure_dir "$HOME/.config/mpd"
+        cp "$mpd_config_dir/mpd.conf" "$HOME/.config/mpd/mpd.conf"
+    fi
+    
     # Configure rmpc
     local rmpc_config_dir="$DOTFILES_DIR/.config/rmpc"
     ensure_dir "$rmpc_config_dir"
@@ -1104,6 +1103,13 @@ EOF
         rm -rf "$HOME/.config/rmpc"
     fi
     ln -sf "$rmpc_config_dir" "$HOME/.config/rmpc"
+    
+    # Verify the symlink works by checking if config is accessible
+    if [ ! -f "$HOME/.config/rmpc/config.ron" ]; then
+        print_warning "rmpc config symlink failed, creating direct config in ~/.config/rmpc"
+        ensure_dir "$HOME/.config/rmpc"
+        cp "$rmpc_config_dir/config.ron" "$HOME/.config/rmpc/config.ron"
+    fi
     
     # Add to chezmoi if enabled
     if [ "$USE_CHEZMOI" = true ]; then
@@ -1203,6 +1209,14 @@ EOF
         fi
     fi
     
+    # Test MPD configuration by starting it briefly
+    print_step "Testing MPD configuration..."
+    if mpd --test ~/.config/mpd/mpd.conf >/dev/null 2>&1; then
+        print_success "MPD configuration is valid"
+    else
+        print_warning "MPD configuration may have issues"
+    fi
+    
     print_success "Music system (MPD + rmpc) configured successfully"
     
     echo -e "\n${CYAN}Music System Setup Complete:${NC}"
@@ -1211,75 +1225,13 @@ EOF
     echo -e "${BLUE}→ Launch music client: ${GREEN}rmpc${NC} or ${GREEN}music${NC}"
     echo -e "${BLUE}→ Check status: ${GREEN}music-status${NC}"
     echo -e "${BLUE}→ Stop music system: ${GREEN}music-stop${NC}"
+    echo -e ""
+    echo -e "${YELLOW}Note: Run ${GREEN}music-start${YELLOW} before using ${GREEN}rmpc${YELLOW} to start the MPD daemon${NC}"
     
     return 0
 }
 
-# Setup Ghostty terminal (now available in Arch repos)
-setup_ghostty_terminal() {
-    print_header "Setting up Ghostty Terminal"
-    
-    # Install Ghostty from official Arch repository
-    print_step "Installing Ghostty terminal from Arch repository..."
-    install_packages_robust "ghostty" "Ghostty terminal"
-    
-    if [ $? -ne 0 ]; then
-        print_warning "Failed to install Ghostty from repository, skipping..."
-        return 1
-    fi
-    
-    # Create Ghostty config in dotfiles directory
-    local ghostty_config_dir="$DOTFILES_DIR/.config/ghostty"
-    ensure_dir "$ghostty_config_dir"
-    
-    if [ ! -f "$ghostty_config_dir/config" ]; then
-        print_step "Creating Ghostty configuration..."
-        cat > "$ghostty_config_dir/config" << 'EOF'
-# Ghostty Configuration for WSL Development Environment
-
-# Font settings
-font-family = JetBrains Mono Nerd Font
-font-size = 11
-font-feature = -liga
-
-# Theme (clean and modern)
-background = #1a1b26
-foreground = #c0caf5
-cursor-color = #f7768e
-
-# Window settings
-window-padding-x = 12
-window-padding-y = 12
-window-decoration = false
-
-# Terminal behavior
-scrollback-limit = 10000
-cursor-style = block
-cursor-style-blink = true
-
-# Performance
-macos-non-native-fullscreen = true
-EOF
-        print_success "Created Ghostty configuration"
-    fi
-    
-    # Create symlink from home to dotfiles directory
-    ensure_dir "$HOME/.config"
-    if [ -L "$HOME/.config/ghostty" ] || [ -d "$HOME/.config/ghostty" ]; then
-        rm -rf "$HOME/.config/ghostty"
-    fi
-    ln -sf "$ghostty_config_dir" "$HOME/.config/ghostty"
-    
-    # Add to chezmoi if enabled
-    if [ "$USE_CHEZMOI" = true ]; then
-        safe_add_to_chezmoi "$HOME/.config/ghostty" "Ghostty terminal configuration"
-    fi
-    
-    print_success "Ghostty terminal setup completed"
-    print_step "Ghostty is now available as: ghostty"
-    
-    return 0
-}
+# Ghostty terminal removed - doesn't work well in WSL
 
 # Install Fastfetch for system information display
 install_fastfetch() {
@@ -3945,7 +3897,7 @@ fi
 # Step 3: Enhanced installations
 install_modern_cli_tools || print_warning "Modern CLI tools installation failed, continuing..."
 setup_music_system || print_warning "Music system setup failed, continuing..."
-setup_ghostty_terminal || print_warning "Ghostty terminal setup failed, continuing..."
+# Ghostty terminal removed - doesn't work well in WSL
 setup_windows_terminal_configs || print_warning "Windows terminal config setup failed, continuing..."
 install_fastfetch || print_warning "Fastfetch installation failed, continuing..."
 install_neovim || { print_error "Neovim installation failed"; exit 1; }
