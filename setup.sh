@@ -334,12 +334,7 @@ setup_workspace() {
     # Create projects directory
     ensure_dir ~/dev/projects || return 1
     
-    # Create config directories
-    ensure_dir ~/dev/configs/nvim/custom || return 1
-    ensure_dir ~/dev/configs/zsh || return 1
-    ensure_dir ~/dev/configs/tmux || return 1
-    ensure_dir ~/dev/configs/wsl || return 1
-    ensure_dir ~/dev/configs/git || return 1
+    # Note: Config files are stored in the dotfiles directory, not in dev/configs
     ensure_dir ~/dev/bin || return 1
     ensure_dir ~/dev/docs || return 1
 
@@ -822,6 +817,17 @@ install_core_deps() {
         echo 'export PATH="$HOME/.local/bin:$HOME/bin:$PATH"' >> ~/.bashrc
     fi
     
+    # Add NVM to bashrc if it's not already there (will be needed later)
+    if ! grep -q "export NVM_DIR" ~/.bashrc; then
+        cat >> ~/.bashrc << 'EOF'
+
+# NVM configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+EOF
+    fi
+    
     print_success "Core dependencies installed successfully"
     return 0
 }
@@ -866,7 +872,7 @@ install_modern_cli_tools() {
     print_step "Installing modern CLI tools from package manager..."
     
     # Many of these tools are available in pacman and more reliable to install
-    install_packages_robust "exa bat fd ripgrep starship lazygit ranger ncdu duf gdu" "modern CLI tools"
+    install_packages_robust "eza bat fd ripgrep starship lazygit ranger ncdu duf gdu" "modern CLI tools"
     
     # Only try cargo installs if cargo is available and for tools not in pacman
     if command_exists cargo; then
@@ -893,60 +899,411 @@ install_modern_cli_tools() {
     return 0
 }
 
+# Setup music system (MPD + rmpc) with Windows music access
+setup_music_system() {
+    print_header "Setting up Music System (MPD + rmpc)"
+    
+    # Install MPD (Music Player Daemon) and related tools
+    print_step "Installing MPD and audio dependencies..."
+    install_packages_robust "mpd mpc alsa-utils pulseaudio" "music player daemon and audio system"
+    
+    # Install rmpc from cargo if available, or build from source
+    if command_exists cargo; then
+        print_step "Installing rmpc music client..."
+        
+        # Install from crates.io if available
+        if cargo install rmpc 2>/dev/null; then
+            print_success "rmpc installed from crates.io"
+        else
+            # Build from source as fallback
+            print_step "Building rmpc from source..."
+            local temp_dir=$(mktemp -d)
+            cd "$temp_dir" || return 1
+            
+            if git clone https://github.com/mierak/rmpc.git; then
+                cd rmpc || return 1
+                if cargo build --release; then
+                    cp target/release/rmpc "$HOME/.local/bin/"
+                    chmod +x "$HOME/.local/bin/rmpc"
+                    print_success "rmpc built and installed from source"
+                else
+                    print_warning "Failed to build rmpc from source"
+                fi
+            else
+                print_warning "Failed to clone rmpc repository"
+            fi
+            
+            cd "$HOME" || return 1
+            rm -rf "$temp_dir"
+        fi
+    else
+        print_warning "Cargo not available, skipping rmpc installation"
+        return 1
+    fi
+    
+    # Get Windows username for music path
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    if [ -z "$WIN_USER" ]; then
+        WIN_USER="$USER"
+    fi
+    
+    # Configure MPD
+    local mpd_config_dir="$DOTFILES_DIR/.config/mpd"
+    ensure_dir "$mpd_config_dir"
+    
+    # Create MPD directories
+    ensure_dir "$HOME/.local/share/mpd"
+    ensure_dir "$HOME/.local/share/mpd/playlists"
+    
+    print_step "Creating MPD configuration with Windows music access..."
+    cat > "$mpd_config_dir/mpd.conf" << EOF
+# MPD Configuration for WSL with Windows Music Access
+
+# Music directory (Windows music folder)
+music_directory     "/mnt/c/Users/$WIN_USER/Music"
+
+# MPD data directories
+playlist_directory  "$HOME/.local/share/mpd/playlists"
+db_file             "$HOME/.local/share/mpd/database"
+log_file            "$HOME/.local/share/mpd/log"
+pid_file            "$HOME/.local/share/mpd/pid"
+state_file          "$HOME/.local/share/mpd/state"
+sticker_file        "$HOME/.local/share/mpd/sticker.sql"
+
+# Network settings
+bind_to_address     "127.0.0.1"
+port                "6600"
+
+# Audio output configuration
+audio_output {
+    type        "pulse"
+    name        "PulseAudio Output"
+    server      "unix:/mnt/wslg/PulseServer"
+}
+
+# Alternative ALSA output (fallback)
+audio_output {
+    type        "alsa"
+    name        "ALSA Output"
+    device      "default"
+    enabled     "no"
+}
+
+# Performance settings
+auto_update         "yes"
+auto_update_depth   "3"
+follow_outside_symlinks "yes"
+follow_inside_symlinks  "yes"
+
+# Input plugins
+input {
+    plugin "curl"
+}
+
+# Decoder plugins
+decoder {
+    plugin                  "mad"
+    enabled                 "yes"
+}
+
+decoder {
+    plugin                  "flac"
+    enabled                 "yes"
+}
+
+decoder {
+    plugin                  "vorbis"
+    enabled                 "yes"
+}
+
+decoder {
+    plugin                  "opus"
+    enabled                 "yes"
+}
+EOF
+    
+    # Create symlink for MPD config
+    ensure_dir "$HOME/.config"
+    if [ -L "$HOME/.config/mpd" ] || [ -d "$HOME/.config/mpd" ]; then
+        rm -rf "$HOME/.config/mpd"
+    fi
+    ln -sf "$mpd_config_dir" "$HOME/.config/mpd"
+    
+    # Configure rmpc
+    local rmpc_config_dir="$DOTFILES_DIR/.config/rmpc"
+    ensure_dir "$rmpc_config_dir"
+    
+    print_step "Creating rmpc configuration..."
+    cat > "$rmpc_config_dir/config.ron" << 'EOF'
+// rmpc Configuration for WSL Music System
+
+(
+    // Connection settings
+    address: "127.0.0.1:6600",
+    
+    // UI settings
+    theme: (
+        primary_color: "Blue",
+        secondary_color: "Green",
+        highlight_color: "Yellow",
+        background_color: "Black",
+        text_color: "White",
+    ),
+    
+    // Behavior settings
+    auto_update: true,
+    shuffle_on_startup: false,
+    repeat_mode: "Off",
+    volume_step: 5,
+    
+    // Key bindings (vim-like)
+    keybinds: (
+        global: {
+            "q": "Quit",
+            "h": "Left",
+            "j": "Down", 
+            "k": "Up",
+            "l": "Right",
+            "g": "Top",
+            "G": "Bottom",
+            "/": "Search",
+            "n": "NextSearchResult",
+            "N": "PrevSearchResult",
+            "Space": "PlayPause",
+            "Enter": "Confirm",
+            "Escape": "Close",
+        },
+        queue: {
+            "d": "Delete",
+            "c": "Clear",
+            "s": "Shuffle",
+        },
+        browser: {
+            "a": "AddToQueue",
+            "A": "AddToPlaylist",
+            "Enter": "PlayFromHere",
+        },
+    ),
+    
+    // Display settings
+    show_borders: true,
+    show_volume: true,
+    show_progress_bar: true,
+    columns: [
+        "Track",
+        "Title", 
+        "Artist",
+        "Album",
+        "Duration",
+    ],
+)
+EOF
+    
+    # Create symlink for rmpc config
+    if [ -L "$HOME/.config/rmpc" ] || [ -d "$HOME/.config/rmpc" ]; then
+        rm -rf "$HOME/.config/rmpc"
+    fi
+    ln -sf "$rmpc_config_dir" "$HOME/.config/rmpc"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/.config/mpd" "MPD music daemon configuration"
+        safe_add_to_chezmoi "$HOME/.config/rmpc" "rmpc music client configuration"
+    fi
+    
+    # Create helper scripts
+    print_step "Creating music system helper scripts..."
+    
+    # MPD control script
+    cat > "$HOME/bin/music-start" << 'EOF'
+#!/bin/bash
+# Start MPD daemon and rmpc client
+
+# Ensure MPD directories exist
+mkdir -p "$HOME/.local/share/mpd/playlists"
+
+# Start MPD
+echo "Starting MPD..."
+mpd --no-daemon --stderr ~/.config/mpd/mpd.conf &
+MPD_PID=$!
+
+# Wait a moment for MPD to start
+sleep 2
+
+# Update database if music directory exists
+if [ -d "/mnt/c/Users/$USER/Music" ]; then
+    echo "Updating music database..."
+    mpc update
+fi
+
+echo "MPD started (PID: $MPD_PID)"
+echo "Music directory: /mnt/c/Users/$USER/Music"
+echo "Run 'rmpc' to start the music client"
+echo "Run 'music-stop' to stop the daemon"
+EOF
+    chmod +x "$HOME/bin/music-start"
+    
+    # MPD stop script
+    cat > "$HOME/bin/music-stop" << 'EOF'
+#!/bin/bash
+# Stop MPD daemon
+
+echo "Stopping MPD..."
+mpd --kill ~/.config/mpd/mpd.conf 2>/dev/null || killall mpd 2>/dev/null
+echo "MPD stopped"
+EOF
+    chmod +x "$HOME/bin/music-stop"
+    
+    # Quick music status script
+    cat > "$HOME/bin/music-status" << 'EOF'
+#!/bin/bash
+# Show music system status
+
+echo "=== Music System Status ==="
+if pgrep -f "mpd" > /dev/null; then
+    echo "MPD: Running"
+    mpc status
+else
+    echo "MPD: Not running"
+    echo "Run 'music-start' to start the music system"
+fi
+
+echo ""
+echo "Music directory: /mnt/c/Users/$USER/Music"
+if [ -d "/mnt/c/Users/$USER/Music" ]; then
+    echo "Music files found: $(find "/mnt/c/Users/$USER/Music" -type f \( -name "*.mp3" -o -name "*.flac" -o -name "*.ogg" -o -name "*.m4a" \) | wc -l)"
+else
+    echo "Warning: Music directory not found"
+fi
+EOF
+    chmod +x "$HOME/bin/music-status"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/bin/music-start" "MPD start script"
+        safe_add_to_chezmoi "$HOME/bin/music-stop" "MPD stop script"  
+        safe_add_to_chezmoi "$HOME/bin/music-status" "Music status script"
+    fi
+    
+    # Add aliases to shell config
+    print_step "Adding music aliases to shell configuration..."
+    
+    # Add music aliases to .zshrc if it exists
+    if [ -f "$DOTFILES_DIR/.zshrc" ]; then
+        if ! grep -q "# Music system aliases" "$DOTFILES_DIR/.zshrc"; then
+            cat >> "$DOTFILES_DIR/.zshrc" << 'EOF'
+
+# Music system aliases
+alias music='rmpc'
+alias music-start='music-start'
+alias music-stop='music-stop'
+alias music-status='music-status'
+alias mpc-update='mpc update'
+EOF
+        fi
+    fi
+    
+    print_success "Music system (MPD + rmpc) configured successfully"
+    
+    echo -e "\n${CYAN}Music System Setup Complete:${NC}"
+    echo -e "${BLUE}→ Music directory: /mnt/c/Users/$WIN_USER/Music${NC}"
+    echo -e "${BLUE}→ Start music system: ${GREEN}music-start${NC}"
+    echo -e "${BLUE}→ Launch music client: ${GREEN}rmpc${NC} or ${GREEN}music${NC}"
+    echo -e "${BLUE}→ Check status: ${GREEN}music-status${NC}"
+    echo -e "${BLUE}→ Stop music system: ${GREEN}music-stop${NC}"
+    
+    return 0
+}
+
 # Setup Ghostty terminal (Linux-only terminal)
 setup_ghostty_terminal() {
     print_header "Setting up Ghostty Terminal"
     
     # Install dependencies for building Ghostty
-    install_packages_robust "cmake freetype2 fontconfig pkg-config" "terminal dependencies"
+    install_packages_robust "cmake freetype2 fontconfig pkg-config zig" "terminal dependencies"
     
-    # Check if Ghostty is available in AUR
-    if command_exists yay; then
-        print_step "Installing Ghostty from AUR..."
-        yay -S --noconfirm ghostty || print_warning "Ghostty installation failed, you may need to build from source"
+    # Install Ghostty from source since it's not in Arch repos yet
+    print_step "Installing Ghostty terminal from source..."
+    
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir" || return 1
+    
+    # Clone and build Ghostty
+    if git clone https://github.com/ghostty-org/ghostty.git; then
+        cd ghostty || return 1
+        
+        print_step "Building Ghostty (this may take a few minutes)..."
+        if zig build -Doptimize=ReleaseFast; then
+            # Install to user's local bin
+            ensure_dir "$HOME/.local/bin"
+            cp zig-out/bin/ghostty "$HOME/.local/bin/"
+            chmod +x "$HOME/.local/bin/ghostty"
+            print_success "Ghostty installed successfully"
+        else
+            print_warning "Failed to build Ghostty, skipping installation"
+            cd "$HOME" || return 1
+            rm -rf "$temp_dir"
+            return 1
+        fi
     else
-        print_warning "Ghostty is not available in official repos. Visit https://ghostty.org for installation instructions"
+        print_warning "Failed to clone Ghostty repository, skipping installation"
+        cd "$HOME" || return 1
+        rm -rf "$temp_dir"
+        return 1
     fi
+    
+    cd "$HOME" || return 1
+    rm -rf "$temp_dir"
     
     # Create Ghostty config in dotfiles directory
     local ghostty_config_dir="$DOTFILES_DIR/.config/ghostty"
     ensure_dir "$ghostty_config_dir"
     
     if [ ! -f "$ghostty_config_dir/config" ]; then
-        print_step "Creating basic Ghostty configuration..."
+        print_step "Creating Ghostty configuration..."
         cat > "$ghostty_config_dir/config" << 'EOF'
-# Ghostty Configuration
-# This is a basic configuration file for Ghostty terminal
+# Ghostty Configuration for WSL Development Environment
 
 # Font settings
-font-family = JetBrains Mono
+font-family = JetBrains Mono Nerd Font
 font-size = 11
+font-feature = -liga
 
-# Theme (customize as needed)
-background = #1e1e2e
-foreground = #cdd6f4
+# Theme (clean and modern)
+background = #1a1b26
+foreground = #c0caf5
+cursor-color = #f7768e
 
 # Window settings
-window-padding-x = 10
-window-padding-y = 10
+window-padding-x = 12
+window-padding-y = 12
+window-decoration = false
 
-# Other settings
-cursor-style = block
+# Terminal behavior
 scrollback-limit = 10000
+cursor-style = block
+cursor-style-blink = true
+
+# Performance
+macos-non-native-fullscreen = true
 EOF
-        print_success "Created basic Ghostty configuration"
+        print_success "Created Ghostty configuration"
     fi
     
     # Create symlink from home to dotfiles directory
-    if [ ! -L "$HOME/.config/ghostty" ]; then
-        print_step "Creating symlink for Ghostty config..."
-        mkdir -p "$HOME/.config"
-        ln -sf "$ghostty_config_dir" "$HOME/.config/ghostty"
+    ensure_dir "$HOME/.config"
+    if [ -L "$HOME/.config/ghostty" ] || [ -d "$HOME/.config/ghostty" ]; then
+        rm -rf "$HOME/.config/ghostty"
+    fi
+    ln -sf "$ghostty_config_dir" "$HOME/.config/ghostty"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/.config/ghostty" "Ghostty terminal configuration"
     fi
     
     print_success "Ghostty terminal setup completed"
-    print_step "Note: Your terminal emulators on Windows will use their existing configs"
-    print_step "Ghostty is a Linux-only terminal with config at: $ghostty_config_dir"
+    print_step "Ghostty is now available as: ghostty"
     
     return 0
 }
@@ -1464,7 +1821,7 @@ setup_github_repository() {
                 GITHUB_REPO_CREATED=true
             else 
                 print_warning "Failed to push to GitHub. You can try again later with:"
-                print_warning "cd $DOTFILES_DIR && git push -u origin $current_branch"
+                print_warning "cd \"$DOTFILES_DIR\" && git push -u origin $current_branch"
                 print_warning "You may need to create the repository manually at https://github.com/new"
             fi
         else
@@ -1488,7 +1845,7 @@ setup_github_repository() {
                 
                 print_step "To push your dotfiles to GitHub:"
                 print_warning "1. Create a repository named '$repo_name' on GitHub"
-                print_warning "2. Run: cd $DOTFILES_DIR && git push -u origin $current_branch"
+                print_warning "2. Run: cd \"$DOTFILES_DIR\" && git push -u origin $current_branch"
             fi
         fi
     fi
@@ -1657,6 +2014,470 @@ EOL
         print_step "Skipping Git configuration setup"
     fi
     
+    return 0
+}
+
+# Setup Zsh configuration with Oh My Zsh
+setup_zsh_config() {
+    print_header "Setting up Zsh configuration"
+    
+    # Install Oh My Zsh if not already installed
+    if [ ! -d "$HOME/.oh-my-zsh" ]; then
+        print_step "Installing Oh My Zsh..."
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Oh My Zsh"
+            return 1
+        fi
+    else
+        print_step "Oh My Zsh is already installed"
+    fi
+    
+    # Create .zshrc in dotfiles directory
+    local zshrc_path="$DOTFILES_DIR/.zshrc"
+    
+    print_step "Creating Zsh configuration..."
+    cat > "$zshrc_path" << 'EOF'
+# Path to your oh-my-zsh installation.
+export ZSH="$HOME/.oh-my-zsh"
+
+# Set name of the theme to load
+ZSH_THEME="robbyrussell"
+
+# Which plugins would you like to load?
+plugins=(
+    git
+    zsh-autosuggestions
+    zsh-syntax-highlighting
+    fzf
+    tmux
+    z
+    colored-man-pages
+    command-not-found
+    sudo
+)
+
+source $ZSH/oh-my-zsh.sh
+
+# User configuration
+
+# Export PATH
+export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+
+# Set default editor
+export EDITOR='nvim'
+export VISUAL='nvim'
+
+# Enable true color support
+export COLORTERM=truecolor
+
+# Aliases
+alias v='nvim'
+alias vi='nvim'
+alias vim='nvim'
+alias ll='eza -la --icons --group-directories-first --time-style=long-iso'
+alias la='eza -la --icons --group-directories-first'
+alias ls='eza --icons --group-directories-first'
+alias lt='eza --tree --level=2 --icons'
+alias tree='eza --tree --icons'
+alias cat='bat'
+alias find='fd'
+alias grep='rg'
+alias ps='procs'
+alias du='gdu'
+alias df='duf'
+alias top='btm'
+alias htop='btm'
+alias c='clear'
+
+# Git aliases
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit -m'
+alias gp='git push'
+alias gl='git pull'
+alias gd='git diff'
+alias gco='git checkout'
+alias gb='git branch'
+alias glog='git log --oneline --graph --decorate'
+
+# Tmux aliases
+alias t='tmux'
+alias ta='tmux attach -t'
+alias tn='tmux new -s'
+alias tl='tmux list-sessions'
+alias tk='tmux kill-session -t'
+
+# Navigation
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias ~='cd ~'
+alias -- -='cd -'
+
+# Chezmoi aliases (if using chezmoi)
+if command -v chezmoi &> /dev/null; then
+    alias cz='chezmoi'
+    alias cza='chezmoi add'
+    alias cze='chezmoi edit'
+    alias czap='chezmoi apply'
+    alias czd='chezmoi diff'
+    alias czup='chezmoi update'
+fi
+
+# WSL specific
+if [[ "$(uname -r)" == *microsoft* ]]; then
+    # WSL2 specific settings
+    export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0
+    export BROWSER='/mnt/c/Program Files/Google/Chrome/Application/chrome.exe'
+    
+    # Windows interop
+    alias explorer='explorer.exe'
+    alias notepad='notepad.exe'
+fi
+
+# FZF configuration
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
+
+# Zoxide initialization
+eval "$(zoxide init zsh)"
+
+# Starship prompt
+eval "$(starship init zsh)"
+
+# NVM configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Cargo/Rust
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+
+# Add custom bin directories to PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Load custom functions
+if [ -f "$HOME/.zsh_functions" ]; then
+    source "$HOME/.zsh_functions"
+fi
+
+# Welcome message with system info
+if command -v fastfetch &> /dev/null; then
+    fastfetch
+fi
+
+# Show a helpful message
+echo ""
+echo "Welcome to your WSL development environment!"
+echo "Type 'cat ~/dev/docs/quick-reference.md' for command reference"
+echo ""
+EOF
+
+    # Install zsh plugins
+    print_step "Installing Zsh plugins..."
+    
+    # Autosuggestions
+    if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions" ]; then
+        git clone https://github.com/zsh-users/zsh-autosuggestions \
+            ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+    fi
+    
+    # Syntax highlighting
+    if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting" ]; then
+        git clone https://github.com/zsh-users/zsh-syntax-highlighting.git \
+            ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+    fi
+    
+    # Create symlink from home to dotfiles
+    if [ -L "$HOME/.zshrc" ] || [ -f "$HOME/.zshrc" ]; then
+        backup_file "$HOME/.zshrc"
+    fi
+    ln -sf "$zshrc_path" "$HOME/.zshrc"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/.zshrc" "Zsh configuration"
+    fi
+    
+    print_success "Zsh configuration created successfully"
+    return 0
+}
+
+# Setup tmux configuration
+setup_tmux_config() {
+    print_header "Setting up tmux configuration"
+    
+    local tmux_conf_path="$DOTFILES_DIR/.tmux.conf"
+    
+    print_step "Creating tmux configuration..."
+    cat > "$tmux_conf_path" << 'EOF'
+# Tmux configuration for WSL development environment
+
+# Set prefix to Ctrl-a instead of Ctrl-b
+unbind C-b
+set-option -g prefix C-a
+bind-key C-a send-prefix
+
+# Enable mouse support
+set -g mouse on
+
+# Start windows and panes at 1, not 0
+set -g base-index 1
+setw -g pane-base-index 1
+
+# Renumber windows when one is closed
+set -g renumber-windows on
+
+# Split panes using | and -
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+unbind '"'
+unbind %
+
+# Reload config file
+bind r source-file ~/.tmux.conf \; display "Config reloaded!"
+
+# Switch panes using Alt-arrow without prefix
+bind -n M-Left select-pane -L
+bind -n M-Right select-pane -R
+bind -n M-Up select-pane -U
+bind -n M-Down select-pane -D
+
+# Vim-like pane navigation
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+# Enable 256 colors
+set -g default-terminal "screen-256color"
+set -ga terminal-overrides ",*256col*:Tc"
+
+# Status bar
+set -g status-position bottom
+set -g status-style 'bg=colour235 fg=colour137'
+set -g status-left '#[fg=colour233,bg=colour245,bold] #S '
+set -g status-right '#[fg=colour233,bg=colour241,bold] %d/%m #[fg=colour233,bg=colour245,bold] %H:%M:%S '
+set -g status-right-length 50
+set -g status-left-length 20
+
+# Window status
+setw -g window-status-current-style 'fg=colour1 bg=colour238 bold'
+setw -g window-status-current-format ' #I#[fg=colour249]:#[fg=colour255]#W#[fg=colour249]#F '
+setw -g window-status-style 'fg=colour9 bg=colour235'
+setw -g window-status-format ' #I#[fg=colour237]:#[fg=colour250]#W#[fg=colour244]#F '
+
+# History
+set -g history-limit 10000
+
+# Activity monitoring
+setw -g monitor-activity on
+set -g visual-activity off
+
+# Vi mode for copy mode
+setw -g mode-keys vi
+
+# Copy to system clipboard (WSL specific)
+if-shell "uname -r | grep -q microsoft" \
+    'bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "clip.exe"'
+EOF
+
+    # Create symlink from home to dotfiles
+    if [ -L "$HOME/.tmux.conf" ] || [ -f "$HOME/.tmux.conf" ]; then
+        backup_file "$HOME/.tmux.conf"
+    fi
+    ln -sf "$tmux_conf_path" "$HOME/.tmux.conf"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/.tmux.conf" "Tmux configuration"
+    fi
+    
+    print_success "Tmux configuration created successfully"
+    return 0
+}
+
+# Setup Starship prompt configuration
+setup_starship_config() {
+    print_header "Setting up Starship prompt"
+    
+    local starship_config_dir="$DOTFILES_DIR/.config/starship"
+    ensure_dir "$starship_config_dir"
+    
+    local starship_config_path="$starship_config_dir/starship.toml"
+    
+    print_step "Creating Starship configuration..."
+    cat > "$starship_config_path" << 'EOF'
+# Starship prompt configuration for WSL
+
+# Format
+format = """
+$username\
+$hostname\
+$directory\
+$git_branch\
+$git_status\
+$nodejs\
+$python\
+$rust\
+$docker_context\
+$line_break\
+$character"""
+
+# Timeout for commands
+command_timeout = 500
+
+[username]
+show_always = false
+style_user = "bold green"
+style_root = "bold red"
+format = '[$user ]($style)'
+
+[hostname]
+ssh_only = true
+format = '[$hostname](bold blue) '
+disabled = false
+
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+format = "[$path]($style)[$read_only]($read_only_style) "
+style = "bold cyan"
+
+[character]
+success_symbol = "[➜](bold green)"
+error_symbol = "[➜](bold red)"
+
+[git_branch]
+symbol = " "
+format = 'on [$symbol$branch]($style) '
+style = "bold purple"
+
+[git_status]
+format = '([\[$all_status$ahead_behind\]]($style) )'
+style = "bold red"
+
+[nodejs]
+symbol = " "
+format = 'via [$symbol($version )]($style)'
+style = "bold green"
+
+[python]
+symbol = " "
+format = 'via [${symbol}${pyenv_prefix}(${version} )(\($virtualenv\) )]($style)'
+style = "bold yellow"
+
+[rust]
+symbol = " "
+format = 'via [$symbol($version )]($style)'
+style = "bold red"
+
+[docker_context]
+symbol = " "
+format = 'via [$symbol$context]($style) '
+style = "bold blue"
+EOF
+
+    # Create symlink
+    ensure_dir "$HOME/.config"
+    if [ -L "$HOME/.config/starship" ] || [ -d "$HOME/.config/starship" ]; then
+        rm -rf "$HOME/.config/starship"
+    fi
+    ln -sf "$starship_config_dir" "$HOME/.config/starship"
+    
+    # Also create the direct config file for compatibility
+    ln -sf "$starship_config_path" "$HOME/.config/starship.toml"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/.config/starship.toml" "Starship configuration"
+    fi
+    
+    print_success "Starship prompt configured successfully"
+    return 0
+}
+
+# Create WSL utility scripts
+create_wsl_utilities() {
+    print_header "Creating WSL utility scripts"
+    
+    ensure_dir "$HOME/bin" || return 1
+    
+    # Create Windows Explorer opener
+    print_step "Creating Windows Explorer integration script..."
+    cat > "$HOME/bin/winopen" << 'EOF'
+#!/bin/bash
+# Open Windows Explorer in the current or specified directory
+
+if [ $# -eq 0 ]; then
+    # No arguments, open current directory
+    explorer.exe .
+else
+    # Open specified path
+    explorer.exe "$1"
+fi
+EOF
+    chmod +x "$HOME/bin/winopen"
+    
+    # Create clipboard utilities
+    print_step "Creating clipboard utilities..."
+    cat > "$HOME/bin/clip-copy" << 'EOF'
+#!/bin/bash
+# Copy to Windows clipboard
+clip.exe
+EOF
+    chmod +x "$HOME/bin/clip-copy"
+    
+    cat > "$HOME/bin/clip-paste" << 'EOF'
+#!/bin/bash
+# Paste from Windows clipboard
+powershell.exe -command "Get-Clipboard" | tr -d '\r'
+EOF
+    chmod +x "$HOME/bin/clip-paste"
+    
+    # Create Cursor wrapper script
+    print_step "Creating Cursor IDE wrapper..."
+    cat > "$HOME/bin/cursor-wrapper.sh" << 'EOF'
+#!/bin/bash
+# Wrapper script to launch Cursor IDE from WSL with proper path conversion
+
+# Convert WSL path to Windows path
+if [ $# -eq 0 ]; then
+    # No arguments, open current directory
+    WINPATH=$(wslpath -w "$(pwd)")
+else
+    # Convert the provided path
+    WINPATH=$(wslpath -w "$1")
+fi
+
+# Launch Cursor with the Windows path
+if command -v cursor.exe &> /dev/null; then
+    cursor.exe "$WINPATH"
+elif [ -f "/mnt/c/Users/$USER/AppData/Local/Programs/cursor/Cursor.exe" ]; then
+    "/mnt/c/Users/$USER/AppData/Local/Programs/cursor/Cursor.exe" "$WINPATH"
+else
+    echo "Cursor IDE not found. Please install it from https://cursor.sh"
+    exit 1
+fi
+EOF
+    chmod +x "$HOME/bin/cursor-wrapper.sh"
+    
+    # Create symlinks for convenience
+    ln -sf "$HOME/bin/cursor-wrapper.sh" "$HOME/bin/cursor"
+    ln -sf "$HOME/bin/cursor-wrapper.sh" "$HOME/bin/code"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        safe_add_to_chezmoi "$HOME/bin/winopen" "Windows Explorer integration"
+        safe_add_to_chezmoi "$HOME/bin/clip-copy" "Clipboard copy utility"
+        safe_add_to_chezmoi "$HOME/bin/clip-paste" "Clipboard paste utility"
+        safe_add_to_chezmoi "$HOME/bin/cursor-wrapper.sh" "Cursor IDE wrapper"
+    fi
+    
+    print_success "WSL utility scripts created successfully"
     return 0
 }
 
@@ -2056,7 +2877,7 @@ $DOTFILES_DIR/
 
 3. **Add to version control:**
    \`\`\`bash
-   cd $DOTFILES_DIR
+   cd "$DOTFILES_DIR"
    git add .tmux.conf
    git commit -m "Add tmux configuration"
    git push
@@ -2083,7 +2904,7 @@ Both methods edit the same file!
 After making changes, commit and push them:
 
 \`\`\`bash
-cd $DOTFILES_DIR
+cd "$DOTFILES_DIR"
 git add -A
 git commit -m "Update configurations"
 git push
@@ -2115,7 +2936,7 @@ git push
 
 \`\`\`bash
 # Go to dotfiles directory
-cd $DOTFILES_DIR
+cd "$DOTFILES_DIR"
 
 # Check status
 git status
@@ -2866,7 +3687,7 @@ if [ -d "$HOME/.nvm" ]; then
     (
         cd "$NVM_DIR" && \
         git fetch --quiet --tags origin && \
-        LATEST_TAG=$(git describe --abbrev=0 --tags --match "v[0-9]*" $(git rev-list --tags --max-count=1)) && \
+        LATEST_TAG=$(git describe --abbrev=0 --tags --match "v[0-9]*" "$(git rev-list --tags --max-count=1)") && \
         echo -e "${BLUE}→ Latest NVM version: $LATEST_TAG${NC}" && \
         git checkout --quiet "$LATEST_TAG"
     ) && \. "$NVM_DIR/nvm.sh"
@@ -2919,7 +3740,7 @@ if command -v chezmoi > /dev/null; then
                         chezmoi apply
                     else
                         echo -e "${YELLOW}! No tracking branch configured. To set it up:${NC}"
-                        echo -e "${YELLOW}! cd $CHEZMOI_SOURCE_DIR && git branch --set-upstream-to=origin/$BRANCH $BRANCH${NC}"
+                        echo -e "${YELLOW}! cd \"$CHEZMOI_SOURCE_DIR\" && git branch --set-upstream-to=origin/$BRANCH $BRANCH${NC}"
                     fi
                 fi
             else
@@ -2978,6 +3799,9 @@ display_completion_message() {
     fi
     echo -e "• Node.js (JavaScript runtime): ${GREEN}node${NC}"
     echo -e "• Cursor wrapper: ${GREEN}cursor${NC} or ${GREEN}code${NC}"
+    if command_exists rmpc; then
+        echo -e "• Music system: ${GREEN}rmpc${NC} (MPD client with Windows music access)"
+    fi
     if command_exists claude; then
         echo -e "• Claude Code (AI assistant): ${GREEN}claude${NC}"
     fi
@@ -3089,6 +3913,7 @@ fi
 
 # Step 3: Enhanced installations
 install_modern_cli_tools || print_warning "Modern CLI tools installation failed, continuing..."
+setup_music_system || print_warning "Music system setup failed, continuing..."
 setup_ghostty_terminal || print_warning "Ghostty terminal setup failed, continuing..."
 setup_windows_terminal_configs || print_warning "Windows terminal config setup failed, continuing..."
 install_fastfetch || print_warning "Fastfetch installation failed, continuing..."
@@ -3097,8 +3922,11 @@ setup_nvim_config || exit 1
 setup_git_config || print_warning "Git config setup failed, continuing..."
 setup_nodejs || exit 1
 
-# Step 4: Configure dotfiles (basic shell configs)
-# Note: Additional configuration like zsh, tmux, etc. will be managed through dotfiles
+# Step 4: Configure shell environment
+setup_zsh_config || exit 1
+setup_tmux_config || exit 1
+setup_starship_config || exit 1
+create_wsl_utilities || exit 1
 
 # Step 5: Optional tools
 setup_claude_code || print_warning "Claude Code installation skipped or failed, continuing..."

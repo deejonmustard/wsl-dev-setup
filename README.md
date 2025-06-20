@@ -34,7 +34,7 @@ The result: You get a powerful, modern development environment in minutes, with 
 - **GitHub CLI** for seamless repository management
 
 ### Modern CLI Tools Foundation
-- **exa** - Modern replacement for ls with icons
+- **eza** - Modern replacement for ls with icons
 - **bat** - Cat clone with syntax highlighting  
 - **fd** - User-friendly find alternative
 - **ripgrep** - Lightning-fast grep replacement
@@ -43,6 +43,7 @@ The result: You get a powerful, modern development environment in minutes, with 
 - **lazygit** - Terminal UI for git
 - **starship** - Cross-shell prompt
 - **fastfetch** - System information display
+- **rmpc + MPD** - Terminal music player with Windows music access
 
 ### Flexible Dotfile Management
 - **Optional Chezmoi** - Advanced dotfile management for power users
@@ -164,8 +165,9 @@ Both provide the same powerful features - only the file organization differs. Yo
 
 ### Development Tools
 - **Core Tools**: git, ripgrep, fd, fzf, tmux, zsh, jq, bat, htop
-- **Modern CLI**: exa, zoxide, lazygit, ranger, ncdu, duf
+- **Modern CLI**: eza, zoxide, lazygit, ranger, ncdu, duf
 - **System Monitoring**: fastfetch, btop
+- **Music System**: MPD + rmpc with Windows music folder access
 - **Build Tools**: base-devel, cmake, python, rust (via rustup)
 
 ### Terminal & Shell
@@ -178,6 +180,7 @@ Both provide the same powerful features - only the file organization differs. Yo
 - **WSL Utilities**: Windows path integration, clipboard sync
 - **Cursor/VS Code**: Automatic detection and wrapper scripts
 - **GitHub CLI**: Repository management and authentication
+- **Music System**: MPD daemon with Windows music folder access via rmpc client
 - **Cross-Platform**: Seamless Windows-WSL workflow integration
 
 ## Directory Structure
