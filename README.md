@@ -170,9 +170,9 @@ The setup includes a theme selector with popular options:
 - **Tokyo Night** - Clean and modern
 - **Nord** - Arctic, north-bluish theme
 - **Dracula** - Dark theme with vibrant colors
-- **Minimal/None** - Clean Arch Linux base for custom theming
+- **Minimal/None** - Clean Arch Linux base with all modern tools but no theming
 
-Themed setups include terminal styling, Neovim themes, and modern CLI tool aliases. The minimal option provides a clean base that you can customize yourself.
+All setups include the same modern CLI tools and functionality. Themed setups add visual styling to terminals and Neovim, while the minimal option provides the same powerful toolset with a clean, customizable base.
 
 ## Cross-Platform Workflows
 

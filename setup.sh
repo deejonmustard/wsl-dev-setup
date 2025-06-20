@@ -93,22 +93,22 @@ select_theme() {
     print_header "Select Your Preferred Setup Style"
     
     echo -e "${BLUE}Choose your setup approach:${NC}"
-    echo "1) Rose Pine (Themed setup with modern aesthetics)"
-    echo "2) Catppuccin (Themed setup)"
-    echo "3) Tokyo Night (Themed setup)"
-    echo "4) Nord (Themed setup)"
-    echo "5) Dracula (Themed setup)"
-    echo "6) Minimal/None (Clean Arch Linux - build your own theme)"
+    echo "1) Minimal/None (Clean Arch Linux - build your own theme)"
+    echo "2) Rose Pine (Themed setup with modern aesthetics)"
+    echo "3) Catppuccin (Themed setup)"
+    echo "4) Tokyo Night (Themed setup)"
+    echo "5) Nord (Themed setup)"
+    echo "6) Dracula (Themed setup)"
     
     read -r theme_choice
     
     case $theme_choice in
-        1) SELECTED_THEME="rose-pine" ;;
-        2) SELECTED_THEME="catppuccin" ;;
-        3) SELECTED_THEME="tokyo-night" ;;
-        4) SELECTED_THEME="nord" ;;
-        5) SELECTED_THEME="dracula" ;;
-        6) SELECTED_THEME="minimal" ;;
+        1) SELECTED_THEME="minimal" ;;
+        2) SELECTED_THEME="rose-pine" ;;
+        3) SELECTED_THEME="catppuccin" ;;
+        4) SELECTED_THEME="tokyo-night" ;;
+        5) SELECTED_THEME="nord" ;;
+        6) SELECTED_THEME="dracula" ;;
         *) SELECTED_THEME="minimal" ;;
     esac
     
@@ -1368,19 +1368,20 @@ fi
 # Cross-platform aliases - work on both Windows and Linux
 alias vim='nvim'
 alias v='nvim'
-$(if [ "$SELECTED_THEME" != "minimal" ]; then
-echo "alias ls='exa --icons --group-directories-first'"
-echo "alias ll='exa -l --icons --group-directories-first'"
-echo "alias la='exa -la --icons --group-directories-first'"
-echo "alias tree='exa --tree --icons'"
-echo "alias cat='bat'"
-echo "alias find='fd'"
-echo "alias grep='rg'"
-else
-echo "alias ls='ls --color=auto'"
-echo "alias ll='ls -la'"
-echo "alias la='ls -A'"
-fi)
+
+# Modern CLI tool aliases (available for all setups)
+alias ls='exa --icons --group-directories-first'
+alias ll='exa -l --icons --group-directories-first'
+alias la='exa -la --icons --group-directories-first'
+alias tree='exa --tree --icons'
+alias cat='bat'
+alias find='fd'
+alias grep='rg'
+
+# Fallback aliases if modern tools aren't available
+command -v exa >/dev/null || alias ls='ls --color=auto'
+command -v exa >/dev/null || alias ll='ls -la'
+command -v exa >/dev/null || alias la='ls -A'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias c='clear'
@@ -1406,13 +1407,11 @@ alias czd='chezmoi diff'
 alias czap='chezmoi apply'
 alias czup='chezmoi update'
 
-$(if [ "$SELECTED_THEME" != "minimal" ]; then
-echo "# Better cd with zoxide (if available)"
-echo "if command -v zoxide >/dev/null 2>&1; then"
-echo "    eval \"\$(zoxide init zsh)\""
-echo "    alias cd='z'"
-echo "fi"
-fi)
+# Better cd with zoxide (if available)
+if command -v zoxide >/dev/null 2>&1; then
+    eval "$(zoxide init zsh)"
+    alias cd='z'
+fi
 EOL
     
     if [ $? -ne 0 ]; then
@@ -1583,25 +1582,6 @@ export WSL_INTEROP=/run/WSL/$(ls -1 /run/WSL | head -1)
 export GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 export CHOKIDAR_USEPOLLING=1
 export NODE_OPTIONS="--max-old-space-size=4096"
-
-# Better ls with exa
-alias ls='exa --icons --group-directories-first'
-alias ll='exa -l --icons --group-directories-first'
-alias la='exa -la --icons --group-directories-first'
-alias tree='exa --tree --icons'
-
-# Better cat with bat
-alias cat='bat'
-
-# Better find with fd
-alias find='fd'
-
-# Better grep with ripgrep
-alias grep='rg'
-
-# Better cd with zoxide
-eval "$(zoxide init zsh)"
-alias cd='z'
 EOF
         
         # Update chezmoi
