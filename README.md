@@ -64,7 +64,7 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-Optional: Run in interactive mode (prompts for each package)
+#### _Optional:_ Run in interactive mode (prompts for each package)
 ```bash
 ./setup.sh --interactive
 ```
@@ -127,7 +127,7 @@ The setup script intelligently detects existing Windows dotfiles at `C:\Users\us
 The setup creates an organized structure:
 ```
 ~/
-├── dev/                    # Main development environment
+├── dev/                   # Main development environment
 │   ├── docs/              # Documentation and guides
 │   ├── bin/               # Custom scripts
 │   ├── projects/          # Your projects
@@ -135,8 +135,8 @@ The setup creates an organized structure:
 ├── dotfiles/              # Chezmoi source directory
 └── bin/                   # User executables
     ├── cursor-wrapper.sh  # Cursor IDE integration
-    ├── winopen           # Windows Explorer opener
-    └── clip-copy         # Clipboard utilities
+    ├── winopen            # Windows Explorer opener
+    └── clip-copy          # Clipboard utilities
 ```
 
 ## Theme Customization
