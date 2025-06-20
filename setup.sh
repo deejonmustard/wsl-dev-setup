@@ -2154,43 +2154,55 @@ create_chezmoi_docs() {
     ensure_dir "$SETUP_DIR/docs/chezmoi" || return 1
     
     # Create a basic documentation file
-    cat > "$SETUP_DIR/docs/chezmoi/getting-started.md" << EOL
+    cat > "$SETUP_DIR/docs/chezmoi/getting-started.md" << 'EOL'
 # Getting Started with Chezmoi
 
 Chezmoi is a dotfile manager that helps you manage your configuration files across multiple machines.
 
 ## Your Setup
 
-Your chezmoi source directory is: \`$CHEZMOI_SOURCE_DIR\`
+Your chezmoi source directory is configured for your environment.
+EOL
 
-$(if [[ "$CHEZMOI_SOURCE_DIR" == "/mnt/c/"* ]]; then
-    echo "This is a **unified Windows + WSL setup** that allows cross-platform dotfile editing!"
-    echo ""
-    echo "### Cross-Platform Editing"
-    echo ""
-    echo "- **WSL path:** \`$CHEZMOI_SOURCE_DIR\`"
-    echo "- **Windows path:** \`$(echo "$CHEZMOI_SOURCE_DIR" | sed 's|/mnt/c|C:|')\`"
-    echo ""
-    echo "You can edit your dotfiles from either Windows or WSL:"
-    echo ""
-    echo "1. **From Windows:** Open \`$(echo "$CHEZMOI_SOURCE_DIR" | sed 's|/mnt/c|C:|')\` in your editor"
-    echo "2. **From WSL:** Use \`chezmoi edit\` or \`chezmoi cd\`"
-    echo "3. **Apply changes:** Run \`chezmoi apply\` after editing"
-    echo ""
-    echo "### Templates Handle OS Differences"
-    echo ""
-    echo "Your \`.zshrc\` file uses chezmoi templates to handle differences between Windows and Linux:"
-    echo ""
-    echo "\`\`\`bash"
-    echo "{{- if eq .chezmoi.os \"linux\" }}"
-    echo "# WSL/Linux specific configuration"
-    echo "{{- else if eq .chezmoi.os \"windows\" }}"
-    echo "# Windows specific configuration"
-    echo "{{- end }}"
-    echo "\`\`\`"
-else
-    echo "This is a **WSL-only setup** with dotfiles stored in your WSL home directory."
-fi)
+    # Add platform-specific content
+    if [[ "$CHEZMOI_SOURCE_DIR" == "/mnt/c/"* ]]; then
+        local windows_path=$(echo "$CHEZMOI_SOURCE_DIR" | sed 's|/mnt/c|C:|')
+        cat >> "$SETUP_DIR/docs/chezmoi/getting-started.md" << EOL
+
+This is a **unified Windows + WSL setup** that allows cross-platform dotfile editing!
+
+### Cross-Platform Editing
+
+- **WSL path:** \`$CHEZMOI_SOURCE_DIR\`
+- **Windows path:** \`$windows_path\`
+
+You can edit your dotfiles from either Windows or WSL:
+
+1. **From Windows:** Open \`$windows_path\` in your editor
+2. **From WSL:** Use \`chezmoi edit\` or \`chezmoi cd\`
+3. **Apply changes:** Run \`chezmoi apply\` after editing
+
+### Templates Handle OS Differences
+
+Your \`.zshrc\` file uses chezmoi templates to handle differences between Windows and Linux:
+
+\`\`\`bash
+{{- if eq .chezmoi.os "linux" }}
+# WSL/Linux specific configuration
+{{- else if eq .chezmoi.os "windows" }}
+# Windows specific configuration
+{{- end }}
+\`\`\`
+EOL
+    else
+        cat >> "$SETUP_DIR/docs/chezmoi/getting-started.md" << EOL
+
+This is a **WSL-only setup** with dotfiles stored in your WSL home directory.
+EOL
+    fi
+
+    # Add the rest of the documentation
+    cat >> "$SETUP_DIR/docs/chezmoi/getting-started.md" << 'EOL'
 
 ## Basic Commands
 
