@@ -378,21 +378,35 @@ optimize_mirrors() {
     
     # Use a comprehensive reflector command that works well globally
     # Based on ArcoLinux recommendations with timeout protection
-    if timeout 120 run_elevated reflector \
-        --age 6 \
-        --latest 20 \
-        --fastest 20 \
-        --threads 20 \
-        --sort rate \
-        --protocol https \
-        --save /etc/pacman.d/mirrorlist; then
+    if [ "$EUID" -eq 0 ]; then
+        timeout 120 reflector \
+            --age 6 \
+            --latest 20 \
+            --fastest 20 \
+            --threads 20 \
+            --sort rate \
+            --protocol https \
+            --save /etc/pacman.d/mirrorlist
+    else
+        timeout 120 sudo reflector \
+            --age 6 \
+            --latest 20 \
+            --fastest 20 \
+            --threads 20 \
+            --sort rate \
+            --protocol https \
+            --save /etc/pacman.d/mirrorlist
+    fi
+    
+    if [ $? -eq 0 ]; then
         print_success "Mirrors optimized successfully"
     else
         print_warning "Mirror optimization timed out or failed, using fallback approach"
         
         # Fallback: Use a simple fast mirror list
         print_step "Using fallback mirror configuration..."
-        run_elevated tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+        if [ "$EUID" -eq 0 ]; then
+            tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
 # Fallback mirror list - globally fast mirrors
 Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
 Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
@@ -400,12 +414,26 @@ Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
 Server = https://arch.mirror.constant.com/$repo/os/$arch
 Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
 EOF
+        else
+            sudo tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+# Fallback mirror list - globally fast mirrors
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
+Server = https://arch.mirror.constant.com/$repo/os/$arch
+Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
+EOF
+        fi
         print_success "Fallback mirrors configured"
     fi
     
     # Update package database with new mirrors
     print_step "Updating package database with optimized mirrors..."
-    run_elevated pacman -Sy --noconfirm 2>&1 | grep -v "warning: insufficient columns"
+    if [ "$EUID" -eq 0 ]; then
+        pacman -Sy --noconfirm 2>&1 | grep -v "warning: insufficient columns"
+    else
+        sudo pacman -Sy --noconfirm 2>&1 | grep -v "warning: insufficient columns"
+    fi
     
     return 0
 }
@@ -415,10 +443,18 @@ update_system() {
     print_header "Updating System Packages"
     if [ "$INTERACTIVE_MODE" = false ]; then
         print_step "Updating package database (auto-accepting all prompts)..."
-        run_elevated pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        if [ "$EUID" -eq 0 ]; then
+            pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        else
+            sudo pacman -Syu --noconfirm --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        fi
     else
         print_step "Updating package database..."
-        run_elevated pacman -Syu --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        if [ "$EUID" -eq 0 ]; then
+            pacman -Syu --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        else
+            sudo pacman -Syu --noprogressbar 2>&1 | grep -v "warning: insufficient columns"
+        fi
     fi
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
         print_error "Failed to update system packages"
@@ -437,9 +473,15 @@ install_core_deps() {
     # Export COLUMNS to help pacman format output better
     export COLUMNS=120
     
-    run_elevated pacman -S --noconfirm --needed curl wget git python python-pip python-virtualenv unzip \
-        base-devel file cmake ripgrep fd fzf tmux zsh \
-        jq bat htop github-cli 2>&1 | grep -v "warning: insufficient columns"
+    if [ "$EUID" -eq 0 ]; then
+        pacman -S --noconfirm --needed curl wget git python python-pip python-virtualenv unzip \
+            base-devel file cmake ripgrep fd fzf tmux zsh \
+            jq bat htop github-cli 2>&1 | grep -v "warning: insufficient columns"
+    else
+        sudo pacman -S --noconfirm --needed curl wget git python python-pip python-virtualenv unzip \
+            base-devel file cmake ripgrep fd fzf tmux zsh \
+            jq bat htop github-cli 2>&1 | grep -v "warning: insufficient columns"
+    fi
     
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
         print_error "Failed to install core dependencies"
