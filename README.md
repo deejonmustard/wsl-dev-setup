@@ -5,24 +5,6 @@
 
 A comprehensive development environment setup script for WSL Arch Linux that gets you from **0→1** with modern tools while making the **1→100** customization path effortless.
 
-## 0→1, Then You Take Over
-
-This script follows a **0→1 philosophy** - it provides you with a rock-solid foundation of modern development tools and infrastructure, then gets out of your way so you can customize from 1→100 however you want.
-
-**What we provide (0→1):**
-- Essential modern CLI tools and development environment
-- Flexible dotfile management options (with or without Chezmoi)
-- Cross-platform configuration system
-- Comprehensive documentation
-- Clean, unopinionated foundation
-
-**What we don't impose (1→100 is yours):**
-- ~~Specific themes or color schemes~~ 
-- ~~Forced configuration choices~~
-- ~~Opinionated workflow decisions~~
-
-The result: You get a powerful, modern development environment in minutes, with complete freedom to theme and customize it exactly how you want.
-
 ## Features
 
 ### Core Development Environment
@@ -199,50 +181,6 @@ The setup creates a clean, organized structure:
     ├── winopen            # Windows Explorer opener
     └── clip-copy          # Clipboard utilities
 ```
-
-## Customization Made Easy (1→100)
-
-The environment provides excellent tools for customization:
-
-### Modern CLI Foundation
-All the tools you need for efficient customization:
-- **ripgrep & fd**: Lightning-fast searching through configs
-- **fzf**: Fuzzy finding for quick navigation  
-- **bat**: Syntax-highlighted file viewing
-- **exa**: Beautiful directory listings
-- **lazygit**: Visual git interface for managing dotfiles
-
-### Theming Freedom
-No imposed themes - start with a clean foundation:
-- **Neovim**: Kickstart provides LSP, completion, and modern features
-- **Terminal**: Clean base configurations ready for your themes
-- **Shell**: Oh My Zsh with sensible defaults, easily customizable
-- **Tmux**: Vim-like navigation with clean status line
-
-### Documentation & Guides
-Comprehensive documentation for your customization journey:
-- Workflow guides and best practices
-- Tool-specific configuration examples  
-- Cross-platform development tips
-- Troubleshooting and maintenance guides
-
-## GitHub Integration
-
-Seamless GitHub integration for your dotfiles:
-- **Automatic Authentication**: Web-based or token auth
-- **Repository Management**: Easy private/public repo creation
-- **Dotfile Syncing**: Push/pull configurations across machines (if using Chezmoi)
-- **GitHub CLI**: Full command-line repository management
-
-## WSL-Specific Optimizations
-
-Performance and integration enhancements:
-- **File System**: Optimized cross-filesystem operations
-- **Clipboard**: Bidirectional Windows-WSL clipboard sync
-- **Path Handling**: Intelligent Windows path conversion
-- **Performance**: Optimized package mirrors and file watching
-- **Integration**: Windows Explorer and application launching
-
 ## Maintenance
 
 Keep your environment current:
@@ -274,36 +212,13 @@ Full integration with Cursor IDE for Windows:
 - **WSL Wrapper**: Handles path conversion seamlessly  
 - **Command Aliases**: Both `cursor .` and `code .` work
 
-## Script Options
-
-### Non-Interactive Mode (Default)
-Auto-confirms all prompts for unattended installation:
-```bash
-./setup.sh
-```
-
-### Interactive Mode
-Manual control over each package installation:
-```bash
-./setup.sh --interactive
-```
-
-## Troubleshooting
-
-### Common Issues
-- **Existing Dotfiles**: Script automatically detects and preserves existing configurations
-- **Terminal Width**: Pacman column warnings are cosmetic and can be ignored
-- **Node.js Not Found**: Run `source ~/.nvm/nvm.sh` to initialize NVM
-- **Cursor Integration**: Install from https://cursor.sh then run `~/bin/cursor-path.sh`
-- **Network Timeouts**: Script includes retry logic and fallback mirrors
-
 ### Getting Help
 Comprehensive documentation is created during installation:
 - **Workflow guide**: `cat ~/dev/docs/workflow-guide.md`
 - **Quick reference**: `cat ~/dev/docs/quick-reference.md`
 - **Dotfile guides**: `ls ~/dev/docs/` for all available documentation
 
-## Philosophy in Practice
+## Ethos
 
 ### 0→1: What We Handle
 ✅ **Essential Tools**: All modern CLI tools and development infrastructure  
