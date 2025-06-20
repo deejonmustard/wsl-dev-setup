@@ -1745,7 +1745,7 @@ setup_claude_code() {
     print_header "Claude Code Installation"
     
     print_warning "Claude Code requires an Anthropic account with billing setup"
-    print_warning "You'll need at least $5 in credits to use Claude Code"
+    print_warning "You'll need at least \$5 in credits to use Claude Code"
     
     echo -e "\n${BLUE}Do you have an Anthropic account with billing configured? (y/n) [n]${NC}"
     read -r has_anthropic_account
