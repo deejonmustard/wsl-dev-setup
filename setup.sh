@@ -17,7 +17,9 @@ CYAN='\033[0;36m'    # Section headers
 # --- Global configuration ---
 SCRIPT_VERSION="0.0.1"
 SETUP_DIR="$HOME/dev"
-CHEZMOI_SOURCE_DIR=""  # Will be determined based on user preference
+DOTFILES_DIR=""  # Will be determined based on user preference
+USE_CHEZMOI=false
+CHEZMOI_SOURCE_DIR=""
 GITHUB_USERNAME=""
 GITHUB_TOKEN=""
 USE_GITHUB=false
@@ -84,40 +86,6 @@ ensure_dir() {
         fi
     fi
     return 0
-}
-
-# --- Theme Selection ---
-
-# Interactive theme selector
-select_theme() {
-    print_header "Select Your Preferred Setup Style"
-    
-    echo -e "${BLUE}Choose your setup approach:${NC}"
-    echo "1) Minimal/None (Clean Arch Linux - build your own theme)"
-    echo "2) Rose Pine (Themed setup with modern aesthetics)"
-    echo "3) Catppuccin (Themed setup)"
-    echo "4) Tokyo Night (Themed setup)"
-    echo "5) Nord (Themed setup)"
-    echo "6) Dracula (Themed setup)"
-    
-    read -r theme_choice
-    
-    case $theme_choice in
-        1) SELECTED_THEME="minimal" ;;
-        2) SELECTED_THEME="rose-pine" ;;
-        3) SELECTED_THEME="catppuccin" ;;
-        4) SELECTED_THEME="tokyo-night" ;;
-        5) SELECTED_THEME="nord" ;;
-        6) SELECTED_THEME="dracula" ;;
-        *) SELECTED_THEME="minimal" ;;
-    esac
-    
-    export SELECTED_THEME
-    if [ "$SELECTED_THEME" = "minimal" ]; then
-        print_success "Selected: Minimal setup - clean Arch Linux base"
-    else
-        print_success "Selected theme: $SELECTED_THEME"
-    fi
 }
 
 # --- Bootstrap Functions ---
@@ -298,10 +266,13 @@ install_packages_robust() {
     return 1
 }
 
-
-
-# Function to safely add a file to chezmoi
+# Function to safely add a file to chezmoi when chezmoi is enabled
 safe_add_to_chezmoi() {
+    # Only proceed if chezmoi is enabled
+    if [ "$USE_CHEZMOI" != true ]; then
+        return 0
+    fi
+    
     local target_file="$1"
     local description="${2:-file}"
     local force="${3:-}"
@@ -372,9 +343,6 @@ setup_workspace() {
     ensure_dir ~/dev/bin || return 1
     ensure_dir ~/dev/docs || return 1
 
-    # Create dotfiles directory in home
-    ensure_dir ~/dotfiles || return 1
-
     SETUP_DIR="$HOME/dev"
     cd "$SETUP_DIR" || { 
         print_error "Failed to change directory to $SETUP_DIR"
@@ -382,6 +350,264 @@ setup_workspace() {
     }
     
     print_success "Directory structure created successfully"
+    return 0
+}
+
+# Determine dotfiles directory based on user preference
+determine_dotfiles_directory() {
+    print_header "Setting up Dotfiles Directory"
+    
+    # Get Windows username
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    if [ -z "$WIN_USER" ]; then
+        print_step "Enter your Windows username:"
+        read -r WIN_USER
+    fi
+    
+    # Check for existing Windows dotfiles
+    WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
+    
+    if [ -d "$WIN_DOTFILES" ]; then
+        print_success "Found existing dotfiles at $WIN_DOTFILES"
+        DOTFILES_DIR="$WIN_DOTFILES"
+    else
+        echo -e "\n${CYAN}Choose your dotfiles storage location:${NC}"
+        echo -e "${BLUE}1) Unified Windows + WSL location (recommended for cross-platform editing)${NC}"
+        echo -e "   - Dotfiles stored in Windows-accessible location"
+        echo -e "   - Edit from both Windows and WSL"
+        echo -e ""
+        echo -e "${BLUE}2) WSL-only location${NC}"
+        echo -e "   - Traditional Linux approach"
+        echo -e "   - Dotfiles stored in WSL home directory"
+        echo -e ""
+        
+        read -p "Enter your choice (1 or 2) [1]: " choice
+        choice=${choice:-1}
+        
+        case $choice in
+            1)
+                DOTFILES_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
+                print_step "Using unified Windows-accessible dotfiles directory: $DOTFILES_DIR"
+                ;;
+            2)
+                DOTFILES_DIR="$HOME/dotfiles"
+                print_step "Using WSL-only dotfiles directory: $DOTFILES_DIR"
+                ;;
+            *)
+                print_warning "Invalid choice, using unified approach"
+                DOTFILES_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
+                ;;
+        esac
+    fi
+    
+    # Create dotfiles directory
+    ensure_dir "$DOTFILES_DIR" || return 1
+    
+    # Create subdirectories for organization
+    ensure_dir "$DOTFILES_DIR/.config" || return 1
+    ensure_dir "$DOTFILES_DIR/.config/nvim" || return 1
+    ensure_dir "$DOTFILES_DIR/.config/tmux" || return 1
+    ensure_dir "$DOTFILES_DIR/bin" || return 1
+    
+    print_success "Dotfiles directory configured at: $DOTFILES_DIR"
+    
+    # Show cross-platform information if using unified directory
+    if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
+        echo -e "\n${CYAN}Cross-Platform Access:${NC}"
+        echo -e "${BLUE}→ Windows path: $(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')${NC}"
+        echo -e "${BLUE}→ Edit from Windows: Open the above path in your editor${NC}"
+        echo -e "${BLUE}→ Edit from WSL: Access at $DOTFILES_DIR${NC}"
+    fi
+    
+    return 0
+}
+
+# Ask if user wants to use chezmoi
+ask_chezmoi() {
+    print_header "Dotfile Management Setup"
+    
+    echo -e "\n${CYAN}Would you like to use Chezmoi for dotfile management?${NC}"
+    echo -e "${BLUE}Chezmoi helps manage your configuration files across systems.${NC}"
+    echo -e ""
+    echo -e "${GREEN}Benefits:${NC}"
+    echo -e "  • Version control for all your config files"
+    echo -e "  • Easy syncing across multiple machines"
+    echo -e "  • Template support for machine-specific configs"
+    echo -e "  • Automatic backups before applying changes"
+    echo -e ""
+    echo -e "${YELLOW}Note: You can always set this up later if you prefer.${NC}"
+    echo -e ""
+    
+    read -p "Use Chezmoi for dotfile management? (y/n) [n]: " use_chezmoi_response
+    use_chezmoi_response=${use_chezmoi_response:-n}
+    
+    if [[ "$use_chezmoi_response" =~ ^[Yy]$ ]]; then
+        USE_CHEZMOI=true
+        print_success "Chezmoi will be configured for dotfile management"
+        
+        # Set the chezmoi source directory to the dotfiles directory
+        CHEZMOI_SOURCE_DIR="$DOTFILES_DIR"
+        
+        return 0
+    else
+        USE_CHEZMOI=false
+        print_step "Skipping Chezmoi setup"
+        print_step "Your dotfiles will be stored in: $DOTFILES_DIR"
+        print_step "To set up Chezmoi later, see: ~/dev/docs/dotfile-management.md"
+        return 0
+    fi
+}
+
+# Setup Chezmoi for dotfile management (only called if user wants it)
+setup_chezmoi() {
+    print_header "Setting up Chezmoi for dotfile management"
+    
+    # Install chezmoi first
+    if ! command_exists chezmoi; then
+        print_step "Installing Chezmoi..."
+        sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Chezmoi"
+            print_warning "Make sure you have internet connectivity"
+            return 1
+        fi
+        
+        # Add to PATH for current session
+        export PATH="$HOME/.local/bin:$PATH"
+        print_success "Chezmoi installed successfully!"
+    else
+        print_step "Chezmoi is already installed"
+        chezmoi --version
+    fi
+    
+    # Get Git user configuration if not already set
+    if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
+        if command_exists git; then
+            GIT_NAME=$(git config --global user.name 2>/dev/null || echo "")
+            GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
+        fi
+    fi
+    
+    # Configure chezmoi
+    mkdir -p "$HOME/.config/chezmoi"
+    print_step "Configuring chezmoi to use dotfiles directory: $CHEZMOI_SOURCE_DIR"
+    
+    # Get Windows username for cross-platform support
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    
+    cat > "$HOME/.config/chezmoi/chezmoi.toml" << EOF
+# Chezmoi configuration for WSL development environment
+sourceDir = "$CHEZMOI_SOURCE_DIR"
+
+[data]
+    name = "$GIT_NAME"
+    email = "$GIT_EMAIL"
+    windowsUser = "$WIN_USER"
+    
+[edit]
+    command = "nvim"
+EOF
+    
+    # Initialize git repo in the source directory if not already present
+    if [ ! -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
+        print_step "Initializing git repository in dotfiles..."
+        cd "$CHEZMOI_SOURCE_DIR" || return 1
+        git init
+        
+        # Create .gitignore if it doesn't exist
+        if [ ! -f ".gitignore" ]; then
+            print_step "Creating .gitignore file..."
+            cat > ".gitignore" << 'EOL'
+# Editor temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Neovim specific
+lazy-lock.json
+.netrwhist
+
+# Node.js
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.env
+
+# Machine-specific files
+.chezmoi.toml.local
+EOL
+        fi
+        
+        # Create initial commit if needed
+        if ! git rev-parse HEAD >/dev/null 2>&1; then
+            git add .
+            git commit -m "Initial commit: My dotfiles"
+        fi
+        
+        cd "$HOME" || return 1
+    fi
+    
+    # Create README if it doesn't exist
+    if [ ! -f "$CHEZMOI_SOURCE_DIR/README.md" ]; then
+        cat > "$CHEZMOI_SOURCE_DIR/README.md" << 'EOL'
+# My Dotfiles
+
+This directory contains my dotfiles managed by [chezmoi](https://www.chezmoi.io).
+
+## Quick Start
+
+To apply dotfiles on a new machine:
+
+```bash
+# Install chezmoi
+sh -c "$(curl -fsLS get.chezmoi.io)"
+
+# Initialize from this repo
+chezmoi init <your-github-username>
+
+# Apply the dotfiles
+chezmoi apply
+```
+
+## Daily Usage
+
+```bash
+# See what would change
+chezmoi diff
+
+# Apply changes
+chezmoi apply
+
+# Add a new file
+chezmoi add ~/.zshrc
+
+# Edit a managed file
+chezmoi edit ~/.zshrc
+
+# Update from remote
+chezmoi update
+```
+EOL
+    fi
+    
+    print_success "Chezmoi setup completed"
+    
+    # Show helpful chezmoi commands
+    echo -e "\n${CYAN}Helpful chezmoi commands:${NC}"
+    echo -e "${BLUE}→ chezmoi add ~/.zshrc${NC}    # Add a file to be managed"
+    echo -e "${BLUE}→ chezmoi edit ~/.zshrc${NC}   # Edit a managed file"
+    echo -e "${BLUE}→ chezmoi diff${NC}            # See what would change"
+    echo -e "${BLUE}→ chezmoi apply${NC}           # Apply changes"
+    echo -e "${BLUE}→ chezmoi update${NC}          # Pull and apply latest changes"
+    echo -e "${BLUE}→ chezmoi cd${NC}              # Open shell in source directory"
+    
     return 0
 }
 
@@ -631,6 +857,11 @@ install_modern_cli_tools() {
         fi
     fi
     
+    # Add cargo bin to PATH if it exists
+    if [ -d "$HOME/.cargo/bin" ]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+    
     # Install modern CLI tools - some from pacman, some from cargo if available
     print_step "Installing modern CLI tools from package manager..."
     
@@ -662,60 +893,60 @@ install_modern_cli_tools() {
     return 0
 }
 
-# Setup modern terminal emulator configurations
-setup_modern_terminal() {
-    print_header "Installing Modern Terminal Dependencies"
+# Setup Ghostty terminal (Linux-only terminal)
+setup_ghostty_terminal() {
+    print_header "Setting up Ghostty Terminal"
     
-    # Install dependencies for terminal emulators
+    # Install dependencies for building Ghostty
     install_packages_robust "cmake freetype2 fontconfig pkg-config" "terminal dependencies"
     
-    # Only create themed configs if not minimal setup
-    if [ "$SELECTED_THEME" != "minimal" ]; then
-        # Create config directories
-        ensure_dir "$HOME/.config/wezterm"
-        
-        # Create WezTerm config with selected theme
-        print_step "Creating WezTerm configuration..."
-        cat > "$HOME/.config/wezterm/wezterm.lua" << EOF
-local wezterm = require 'wezterm'
-local config = {}
-
-$(if [ "$SELECTED_THEME" = "rose-pine" ]; then
-    echo "config.color_scheme = 'rose-pine-moon'"
-elif [ "$SELECTED_THEME" = "catppuccin" ]; then
-    echo "config.color_scheme = 'Catppuccin Mocha'"
-elif [ "$SELECTED_THEME" = "tokyo-night" ]; then
-    echo "config.color_scheme = 'Tokyo Night'"
-elif [ "$SELECTED_THEME" = "nord" ]; then
-    echo "config.color_scheme = 'Nord (Gogh)'"
-elif [ "$SELECTED_THEME" = "dracula" ]; then
-    echo "config.color_scheme = 'Dracula'"
-else
-    echo "-- Default theme"
-fi)
-config.font = wezterm.font('JetBrains Mono')
-config.font_size = 11.0
-config.window_background_opacity = 0.9
-config.window_padding = {
-    left = 20,
-    right = 20,
-    top = 20,
-    bottom = 20,
-}
-config.use_fancy_tab_bar = false
-config.tab_bar_at_bottom = true
-config.hide_tab_bar_if_only_one_tab = true
-
-return config
-EOF
-        
-        # Add config to chezmoi
-        safe_add_to_chezmoi "$HOME/.config/wezterm/wezterm.lua" "WezTerm configuration" || true
-        print_success "WezTerm configuration created"
+    # Check if Ghostty is available in AUR
+    if command_exists yay; then
+        print_step "Installing Ghostty from AUR..."
+        yay -S --noconfirm ghostty || print_warning "Ghostty installation failed, you may need to build from source"
     else
-        print_step "Minimal setup selected - skipping terminal theme configuration"
-        print_step "You can configure your terminal manually later"
+        print_warning "Ghostty is not available in official repos. Visit https://ghostty.org for installation instructions"
     fi
+    
+    # Create Ghostty config in dotfiles directory
+    local ghostty_config_dir="$DOTFILES_DIR/.config/ghostty"
+    ensure_dir "$ghostty_config_dir"
+    
+    if [ ! -f "$ghostty_config_dir/config" ]; then
+        print_step "Creating basic Ghostty configuration..."
+        cat > "$ghostty_config_dir/config" << 'EOF'
+# Ghostty Configuration
+# This is a basic configuration file for Ghostty terminal
+
+# Font settings
+font-family = JetBrains Mono
+font-size = 11
+
+# Theme (customize as needed)
+background = #1e1e2e
+foreground = #cdd6f4
+
+# Window settings
+window-padding-x = 10
+window-padding-y = 10
+
+# Other settings
+cursor-style = block
+scrollback-limit = 10000
+EOF
+        print_success "Created basic Ghostty configuration"
+    fi
+    
+    # Create symlink from home to dotfiles directory
+    if [ ! -L "$HOME/.config/ghostty" ]; then
+        print_step "Creating symlink for Ghostty config..."
+        mkdir -p "$HOME/.config"
+        ln -sf "$ghostty_config_dir" "$HOME/.config/ghostty"
+    fi
+    
+    print_success "Ghostty terminal setup completed"
+    print_step "Note: Your terminal emulators on Windows will use their existing configs"
+    print_step "Ghostty is a Linux-only terminal with config at: $ghostty_config_dir"
     
     return 0
 }
@@ -887,7 +1118,7 @@ install_neovim_manual() {
 
 # Setup nvim with Kickstart configuration 
 setup_nvim_config() {
-    print_header "Setting up Neovim configuration with Chezmoi"
+    print_header "Setting up Neovim configuration"
     
     # Ask user which version of kickstart they prefer
     echo -e "\n${CYAN}Choose your Neovim configuration style:${NC}"
@@ -999,1360 +1230,59 @@ setup_nvim_config() {
     # Create the custom directory
     mkdir -p "$TEMP_NVIM_DIR/lua/custom"
     
-    print_step "Managing Neovim configuration with chezmoi..."
+    # Store Neovim configuration in dotfiles directory
+    local nvim_config_dir="$DOTFILES_DIR/.config/nvim"
+    ensure_dir "$(dirname "$nvim_config_dir")"
     
-    mkdir -p "$HOME/.config"
+    print_step "Setting up Neovim configuration in dotfiles directory..."
     
-    if [ -d "$HOME/.config/nvim" ] && [ "$(ls -A $HOME/.config/nvim)" ]; then
-        BACKUP_DIR="$HOME/.config/nvim_backup_$(date +%Y%m%d%H%M%S)"
+    # Backup existing config in dotfiles if exists
+    if [ -d "$nvim_config_dir" ] && [ "$(ls -A "$nvim_config_dir")" ]; then
+        BACKUP_DIR="${nvim_config_dir}_backup_$(date +%Y%m%d%H%M%S)"
         print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
-        mv "$HOME/.config/nvim" "$BACKUP_DIR"
+        mv "$nvim_config_dir" "$BACKUP_DIR"
     fi
     
-    cp -r "$TEMP_NVIM_DIR" "$HOME/.config/nvim"
+    # Copy configuration to dotfiles directory
+    cp -r "$TEMP_NVIM_DIR" "$nvim_config_dir"
     
-    # Add the entire nvim config directory to chezmoi for complete dotfile management
-    print_step "Adding Neovim configuration to chezmoi dotfiles..."
-    if chezmoi add "$HOME/.config/nvim"; then
-        print_success "Neovim configuration added to chezmoi"
-        
-        # Add to git if in a git repository
-        if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
-            cd "$CHEZMOI_SOURCE_DIR" || return 1
-            if git add . && git commit -m "Add Neovim Kickstart configuration"; then
-                print_step "Neovim configuration committed to dotfiles repository"
-            else
-                print_warning "Failed to commit Neovim configuration to git"
-            fi
-            cd "$HOME" || return 1
+    # Create symlink from ~/.config/nvim to dotfiles
+    if [ -L "$HOME/.config/nvim" ] || [ -d "$HOME/.config/nvim" ]; then
+        print_step "Removing existing Neovim configuration..."
+        rm -rf "$HOME/.config/nvim"
+    fi
+    
+    print_step "Creating symlink for Neovim configuration..."
+    mkdir -p "$HOME/.config"
+    ln -sf "$nvim_config_dir" "$HOME/.config/nvim"
+    
+    # Add to chezmoi if enabled
+    if [ "$USE_CHEZMOI" = true ]; then
+        print_step "Adding Neovim configuration to chezmoi..."
+        if chezmoi add "$HOME/.config/nvim"; then
+            print_success "Neovim configuration added to chezmoi"
+        else
+            print_warning "Failed to add Neovim configuration to chezmoi"
         fi
-    else
-        print_warning "Failed to add Neovim configuration to chezmoi, but installation succeeded"
     fi
     
     rm -rf "$TEMP_NVIM_DIR"
     
-    print_success "Neovim Kickstart configuration installed and managed by chezmoi"
+    print_success "Neovim Kickstart configuration installed"
+    print_step "Configuration stored in: $nvim_config_dir"
+    print_step "Symlinked to: ~/.config/nvim"
+    
     return 0
 }
 
 # Enhanced Neovim setup with theme
-setup_enhanced_nvim() {
-    print_header "Setting up Enhanced Neovim Configuration"
-    
-    # Skip theme setup for minimal installations
-    if [ "$SELECTED_THEME" = "minimal" ]; then
-        print_step "Minimal setup selected - skipping Neovim theme configuration"
-        print_step "Your Neovim uses the default Kickstart configuration"
-        print_step "You can add themes and plugins manually later"
-        return 0
-    fi
-    
-    # Ask if user wants their selected theme for Neovim
-    echo -e "\n${BLUE}Would you like to add the $SELECTED_THEME theme to your Neovim setup? (y/n) [y]${NC}"
-    read -r add_theme
-    add_theme=${add_theme:-y}
-    
-    if [[ "$add_theme" =~ ^[Yy]$ ]]; then
-        print_step "Adding $SELECTED_THEME configuration to Neovim..."
-        
-        # Create custom plugins directory
-        ensure_dir "$HOME/.config/nvim/lua/custom/plugins"
-        
-        # Create theme config based on selected theme
-        cat > "$HOME/.config/nvim/lua/custom/plugins/theme.lua" << EOF
-return {
-$(if [ "$SELECTED_THEME" = "rose-pine" ]; then
-cat << 'ROSE_PINE'
-  {
-    'rose-pine/neovim',
-    name = 'rose-pine',
-    priority = 1000,
-    config = function()
-      require('rose-pine').setup({
-        variant = 'moon',
-        dim_inactive_windows = false,
-        styles = {
-          transparency = true,
-        },
-      })
-      vim.cmd('colorscheme rose-pine')
-      vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
-      vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
-    end,
-  },
-ROSE_PINE
-elif [ "$SELECTED_THEME" = "catppuccin" ]; then
-cat << 'CATPPUCCIN'
-  {
-    "catppuccin/nvim",
-    name = "catppuccin",
-    priority = 1000,
-    config = function()
-      require("catppuccin").setup({
-        flavour = "mocha",
-        transparent_background = true,
-      })
-      vim.cmd('colorscheme catppuccin')
-    end,
-  },
-CATPPUCCIN
-elif [ "$SELECTED_THEME" = "tokyo-night" ]; then
-cat << 'TOKYO_NIGHT'
-  {
-    "folke/tokyonight.nvim",
-    priority = 1000,
-    config = function()
-      require("tokyonight").setup({
-        style = "night",
-        transparent = true,
-      })
-      vim.cmd('colorscheme tokyonight')
-    end,
-  },
-TOKYO_NIGHT
-elif [ "$SELECTED_THEME" = "nord" ]; then
-cat << 'NORD'
-  {
-    "shaunsingh/nord.nvim",
-    priority = 1000,
-    config = function()
-      vim.g.nord_disable_background = true
-      vim.cmd('colorscheme nord')
-    end,
-  },
-NORD
-elif [ "$SELECTED_THEME" = "dracula" ]; then
-cat << 'DRACULA'
-  {
-    "Mofiqul/dracula.nvim",
-    priority = 1000,
-    config = function()
-      require("dracula").setup({
-        transparent_bg = true,
-      })
-      vim.cmd('colorscheme dracula')
-    end,
-  },
-DRACULA
-fi)
-}
-EOF
-        
-        # Check which version of kickstart we're using
-        if [ -d "$HOME/.config/nvim/lua/kickstart" ]; then
-            # Modular version - has a kickstart directory
-            print_step "Detected Modular Kickstart configuration"
-            
-            # For modular kickstart, custom plugins go in lua/kickstart/plugins/
-            ensure_dir "$HOME/.config/nvim/lua/kickstart/plugins/custom"
-            
-            # Move the theme to the appropriate location
-            mv "$HOME/.config/nvim/lua/custom/plugins/theme.lua" \
-               "$HOME/.config/nvim/lua/kickstart/plugins/custom/theme.lua" 2>/dev/null || true
-            
-            # Move UI enhancements
-            mv "$HOME/.config/nvim/lua/custom/plugins/ui.lua" \
-               "$HOME/.config/nvim/lua/kickstart/plugins/custom/ui.lua" 2>/dev/null || true
-            
-            # Update paths for chezmoi
-            safe_add_to_chezmoi "$HOME/.config/nvim/lua/kickstart/plugins/custom/theme.lua" "Neovim Rose Pine theme" || true
-            safe_add_to_chezmoi "$HOME/.config/nvim/lua/kickstart/plugins/custom/ui.lua" "Neovim UI enhancements" || true
-            
-            print_step "Custom plugins added to modular Kickstart structure"
-        else
-            # Regular version - single init.lua file
-            print_step "Detected Regular Kickstart configuration"
-            
-            # Check if init.lua has custom plugin loading
-            if ! grep -q "custom.plugins" "$HOME/.config/nvim/init.lua"; then
-                print_step "Note: For regular Kickstart, add custom plugins directly to init.lua"
-                print_step "Custom plugin files created in lua/custom/plugins/ for reference"
-            fi
-        fi
-        
-        # Add UI enhancements
-        cat > "$HOME/.config/nvim/lua/custom/plugins/ui.lua" << 'EOF'
-return {
-  -- Status line
-  {
-    'nvim-lualine/lualine.nvim',
-    dependencies = { 'nvim-tree/nvim-web-devicons' },
-    config = function()
-      require('lualine').setup({
-        options = {
-          theme = 'rose-pine',
-        },
-      })
-    end
-  },
-  
-  -- File tree
-  {
-    'nvim-tree/nvim-tree.lua',
-    dependencies = 'nvim-tree/nvim-web-devicons',
-    config = function()
-      require('nvim-tree').setup({
-        view = {
-          width = 35,
-          side = 'left',
-        },
-        renderer = {
-          indent_markers = {
-            enable = true,
-          },
-        },
-      })
-    end
-  },
-}
-EOF
-        
-        # Add the configurations to chezmoi
-        safe_add_to_chezmoi "$HOME/.config/nvim/lua/custom/plugins/theme.lua" "Neovim $SELECTED_THEME theme" || true
-        safe_add_to_chezmoi "$HOME/.config/nvim/lua/custom/plugins/ui.lua" "Neovim UI enhancements" || true
-        
-        print_success "$SELECTED_THEME theme added to Neovim configuration"
-        print_step "Theme will be loaded on next Neovim start"
-        print_step "Run ':Lazy' in Neovim to install the theme"
-    else
-        print_step "Skipping theme setup - using default Kickstart configuration"
-    fi
-    
-    return 0
-}
 
 
-
-# Determine chezmoi source directory based on user preference
-determine_chezmoi_source_dir() {
-    print_header "Configuring Chezmoi Source Directory"
-    
-    echo -e "\n${CYAN}Choose your dotfiles management approach:${NC}"
-    echo -e "${BLUE}1) Unified Windows + WSL dotfiles (recommended for cross-platform editing)${NC}"
-    echo -e "   - Dotfiles stored in Windows-accessible location"
-    echo -e "   - Edit from both Windows and WSL"
-    echo -e "   - Single git repository for all dotfiles"
-    echo -e ""
-    echo -e "${BLUE}2) Separate WSL-only dotfiles${NC}"
-    echo -e "   - Traditional Linux approach"
-    echo -e "   - Dotfiles stored in WSL home directory"
-    echo -e "   - Separate from Windows dotfiles"
-    echo -e ""
-    
-    read -p "Enter your choice (1 or 2) [1]: " choice
-    choice=${choice:-1}
-    
-    case $choice in
-        1)
-            # Get Windows username
-            WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-            if [ -n "$WIN_USER" ]; then
-                CHEZMOI_SOURCE_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
-                print_step "Using unified Windows-accessible dotfiles directory: $CHEZMOI_SOURCE_DIR"
-                print_step "This allows editing dotfiles from both Windows and WSL"
-            else
-                print_warning "Could not determine Windows username, falling back to WSL-only"
-                CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
-            fi
-            ;;
-        2)
-            CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
-            print_step "Using WSL-only dotfiles directory: $CHEZMOI_SOURCE_DIR"
-            ;;
-        *)
-            print_warning "Invalid choice, using unified approach"
-            WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-            if [ -n "$WIN_USER" ]; then
-                CHEZMOI_SOURCE_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
-            else
-                CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
-            fi
-            ;;
-    esac
-    
-    print_success "Chezmoi source directory: $CHEZMOI_SOURCE_DIR"
-}
-
-# Setup Chezmoi for dotfile management
-setup_chezmoi() {
-    print_header "Setting up Chezmoi for dotfile management"
-    
-    # Install chezmoi first
-    if ! command_exists chezmoi; then
-        print_step "Installing Chezmoi..."
-        sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
-        if [ $? -ne 0 ]; then
-            print_error "Failed to install Chezmoi"
-            print_warning "Make sure you have internet connectivity"
-            return 1
-        fi
-        
-        # Add to PATH for current session
-        export PATH="$HOME/.local/bin:$PATH"
-        print_success "Chezmoi installed successfully!"
-    else
-        print_step "Chezmoi is already installed"
-        chezmoi --version
-    fi
-    
-    # Get Git user configuration if not already set
-    if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
-        if command_exists git; then
-            GIT_NAME=$(git config --global user.name 2>/dev/null || echo "")
-            GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
-        fi
-    fi
-    
-    # Detect Windows username
-    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
-    if [ -z "$WIN_USER" ]; then
-        print_step "Enter your Windows username:"
-        read -r WIN_USER
-    fi
-    
-    # Check for existing Windows dotfiles
-    WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
-    
-    if [ -d "$WIN_DOTFILES" ]; then
-        print_success "Found existing dotfiles at $WIN_DOTFILES"
-        
-        # Configure chezmoi to use Windows dotfiles directory
-        mkdir -p "$HOME/.config/chezmoi"
-        print_step "Configuring chezmoi to use existing Windows dotfiles..."
-        cat > "$HOME/.config/chezmoi/chezmoi.toml" << EOF
-# Chezmoi configuration for WSL development environment
-# Using existing Windows dotfiles directory
-sourceDir = "$WIN_DOTFILES"
-
-[data]
-    name = "$GIT_NAME"
-    email = "$GIT_EMAIL"
-    windowsUser = "$WIN_USER"
-    
-[edit]
-    command = "nvim"
-EOF
-        
-        print_success "Chezmoi configured to use Windows dotfiles"
-        
-        # Do NOT create a new dotfiles directory
-        # Do NOT clone a new repo
-        # Use the existing Windows dotfiles
-        
-        CHEZMOI_SOURCE_DIR="$WIN_DOTFILES"
-        
-        # Check if it's already a git repo
-        if [ -d "$WIN_DOTFILES/.git" ]; then
-            print_step "Using existing git repository in Windows dotfiles"
-        else
-            # Initialize git if not already a repo
-            print_step "Initializing git repository in existing dotfiles..."
-            cd "$WIN_DOTFILES" || return 1
-            git init
-            
-            # Create .gitignore if it doesn't exist
-            if [ ! -f ".gitignore" ]; then
-                print_step "Creating .gitignore file..."
-                cat > ".gitignore" << 'EOL'
-# Editor temporary files
-*~
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Neovim specific
-lazy-lock.json
-.netrwhist
-
-# Node.js
-node_modules/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-venv/
-.env
-
-# Machine-specific files
-.chezmoi.toml.local
-EOL
-            fi
-            
-            # Create initial commit if needed
-            if ! git rev-parse HEAD >/dev/null 2>&1; then
-                git add .
-                git commit -m "Initial commit: My dotfiles managed by Chezmoi"
-            fi
-            
-            cd "$HOME" || return 1
-        fi
-    else
-        # Fallback to original behavior if no Windows dotfiles found
-        print_warning "No Windows dotfiles found, falling back to WSL-only setup"
-        print_header "Configuring Chezmoi Source Directory"
-        
-        echo -e "\n${CYAN}Choose your dotfiles management approach:${NC}"
-        echo -e "${BLUE}1) Create unified Windows + WSL dotfiles (recommended)${NC}"
-        echo -e "   - Dotfiles stored in Windows-accessible location"
-        echo -e "   - Edit from both Windows and WSL"
-        echo -e "   - Single git repository for all dotfiles"
-        echo -e ""
-        echo -e "${BLUE}2) Create WSL-only dotfiles${NC}"
-        echo -e "   - Traditional Linux approach"
-        echo -e "   - Dotfiles stored in WSL home directory"
-        echo -e "   - Separate from Windows dotfiles"
-        echo -e ""
-        
-        read -p "Enter your choice (1 or 2) [1]: " choice
-        choice=${choice:-1}
-        
-        case $choice in
-            1)
-                CHEZMOI_SOURCE_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
-                print_step "Creating unified Windows-accessible dotfiles directory: $CHEZMOI_SOURCE_DIR"
-                print_step "This allows editing dotfiles from both Windows and WSL"
-                ;;
-            2)
-                CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
-                print_step "Creating WSL-only dotfiles directory: $CHEZMOI_SOURCE_DIR"
-                ;;
-            *)
-                print_warning "Invalid choice, using unified approach"
-                CHEZMOI_SOURCE_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
-                ;;
-        esac
-        
-        # Create directory for chezmoi documentation
-        ensure_dir "$SETUP_DIR/docs/chezmoi" || return 1
-        ensure_dir "$CHEZMOI_SOURCE_DIR" || return 1
-        
-        # Configure chezmoi
-        mkdir -p "$HOME/.config/chezmoi"
-        print_step "Configuring chezmoi to use custom source directory: $CHEZMOI_SOURCE_DIR"
-        cat > "$HOME/.config/chezmoi/chezmoi.toml" << EOF
-# Chezmoi configuration for WSL development environment
-# Using custom source directory for better organization
-sourceDir = "$CHEZMOI_SOURCE_DIR"
-
-[data]
-    name = "$GIT_NAME"
-    email = "$GIT_EMAIL"
-    windowsUser = "$WIN_USER"
-    
-[edit]
-    command = "nvim"
-EOF
-        
-        # Initialize git repo in the source directory
-        cd "$CHEZMOI_SOURCE_DIR" || return 1
-        git init
-        
-        # Create a basic .gitignore file
-        if [ ! -f ".gitignore" ]; then
-            print_step "Creating basic .gitignore file for dotfiles repo..."
-            cat > ".gitignore" << 'EOL'
-# Editor temporary files
-*~
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Neovim specific
-lazy-lock.json
-.netrwhist
-
-# Node.js
-node_modules/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-venv/
-.env
-
-# Machine-specific files
-.chezmoi.toml.local
-EOL
-        fi
-        
-        cd "$HOME" || return 1
-    fi
-    
-    # Create a simple README in the chezmoi source directory if it doesn't exist
-    if [ ! -f "$CHEZMOI_SOURCE_DIR/README.md" ]; then
-        cat > "$CHEZMOI_SOURCE_DIR/README.md" << 'EOL'
-# My Dotfiles
-
-This directory contains my dotfiles managed by [chezmoi](https://www.chezmoi.io).
-
-## How to use
-
-To apply changes:
-```bash
-chezmoi apply
-```
-
-To add a new file:
-```bash
-chezmoi add ~/.zshrc
-```
-
-For more information, see the [chezmoi documentation](https://www.chezmoi.io/user-guide/command-overview/).
-EOL
-    fi
-    
-    print_success "Chezmoi setup completed with source directory: $CHEZMOI_SOURCE_DIR"
-    
-    # Show helpful chezmoi commands
-    echo -e "\n${CYAN}Helpful chezmoi commands:${NC}"
-    echo -e "${BLUE}→ chezmoi add ~/.zshrc${NC}    # Add a file to be managed"
-    echo -e "${BLUE}→ chezmoi edit ~/.zshrc${NC}   # Edit a managed file"
-    echo -e "${BLUE}→ chezmoi diff${NC}            # See what would change"
-    echo -e "${BLUE}→ chezmoi apply${NC}           # Apply changes"
-    echo -e "${BLUE}→ chezmoi update${NC}          # Pull and apply latest changes"
-    echo -e "${BLUE}→ chezmoi cd${NC}              # Open shell in source directory"
-    
-    # Show cross-platform information if using unified directory
-    if [[ "$CHEZMOI_SOURCE_DIR" == "/mnt/c/"* ]]; then
-        echo -e "\n${CYAN}Cross-Platform Usage:${NC}"
-        echo -e "${BLUE}→ Windows path: $(echo "$CHEZMOI_SOURCE_DIR" | sed 's|/mnt/c|C:|')${NC}"
-        echo -e "${BLUE}→ Edit from Windows: Open the above path in your editor${NC}"
-        echo -e "${BLUE}→ Templates handle OS differences automatically${NC}"
-        echo -e "${BLUE}→ Use 'chezmoi apply' after editing from Windows${NC}"
-    fi
-    
-    return 0
-}
-
-# Setup Zsh shell with Oh My Zsh
-setup_zsh() {
-    print_header "Setting up Zsh with Oh My Zsh"
-    
-    # Install zsh if not already installed
-    if ! command_exists zsh; then
-        print_step "Installing Zsh..."
-        run_elevated pacman -S --noconfirm --needed zsh 2>&1 | grep -v "warning: insufficient columns"
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            print_error "Failed to install Zsh"
-            return 1
-        fi
-    fi
-    
-    # Install Oh My Zsh if not already installed
-    if [ ! -d "$HOME/.oh-my-zsh" ]; then
-        print_step "Installing Oh My Zsh..."
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-        if [ $? -ne 0 ]; then
-            print_error "Failed to install Oh My Zsh"
-            print_warning "Make sure you have internet connectivity"
-            return 1
-        fi
-    else
-        print_step "Oh My Zsh is already installed"
-    fi
-    
-    # Install custom plugins
-    print_step "Installing Zsh plugins..."
-    
-    # zsh-autosuggestions
-    if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions" ]; then
-        git clone https://github.com/zsh-users/zsh-autosuggestions \
-            ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
-    fi
-    
-    # zsh-syntax-highlighting
-    if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting" ]; then
-        git clone https://github.com/zsh-users/zsh-syntax-highlighting.git \
-            ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
-    fi
-    
-    print_success "Zsh setup completed"
-    return 0
-}
-
-# Setup Zsh configuration file
-setup_zshrc() {
-    print_header "Creating Zsh configuration file with Chezmoi"
-    print_step "Creating Zsh configuration..."
-    
-    # Clean up any existing conflicting files in chezmoi source directory
-    if [ -f "$CHEZMOI_SOURCE_DIR/dot_zshrc" ]; then
-        print_step "Removing existing dot_zshrc from chezmoi source..."
-        rm -f "$CHEZMOI_SOURCE_DIR/dot_zshrc"
-    fi
-    if [ -f "$CHEZMOI_SOURCE_DIR/dot_zshrc.tmpl" ]; then
-        print_step "Removing existing dot_zshrc.tmpl from chezmoi source..."
-        rm -f "$CHEZMOI_SOURCE_DIR/dot_zshrc.tmpl"
-    fi
-    
-    # Create a temporary file with our zshrc content
-    TEMP_ZSHRC=$(mktemp)
-    
-    cat > "$TEMP_ZSHRC" << EOL
-# Path to Oh My Zsh installation
-export ZSH="\$HOME/.oh-my-zsh"
-
-# Theme - simple but informative
-ZSH_THEME="robbyrussell"
-
-# Plugins - keep minimal but useful
-plugins=(
-  git                      # Git integration
-  zsh-autosuggestions      # Command suggestions as you type
-  zsh-syntax-highlighting  # Syntax highlighting for commands
-  fzf                      # Fuzzy finder
-  tmux                     # Tmux integration
-)
-
-source \$ZSH/oh-my-zsh.sh
-
-# Environment setup
-export EDITOR='nvim'
-export PATH="\$HOME/bin:\$HOME/.local/bin:/usr/local/bin:\$PATH"
-export CHEZMOI_SOURCE_DIR="$CHEZMOI_SOURCE_DIR"
-
-{{- if eq .chezmoi.os "linux" }}
-# WSL/Linux specific configuration
-
-# NVM setup if it exists
-export NVM_DIR="\$HOME/.nvm"
-[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "\$NVM_DIR/bash_completion" ] && \. "\$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-
-# FZF Configuration
-export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
-export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
-export FZF_CTRL_T_COMMAND="\$FZF_DEFAULT_COMMAND"
-
-$(if [ "$SELECTED_THEME" != "minimal" ]; then
-echo "# Run fastfetch and show quick reference at startup"
-echo "if command -v fastfetch >/dev/null 2>&1; then"
-echo "  fastfetch"
-echo "  "
-echo "  # Display a brief helpful summary after fastfetch"
-echo "  echo \"\""
-echo "  echo \"🚀 WSL Dev Environment - Quick Reference\""
-echo "  echo \"───────────────────────────────────────\""
-echo "  echo \"📝 Edit config files: chezmoi edit ~/.zshrc\""
-echo "  echo \"🔄 Apply dotfile changes: chezmoi apply\""
-echo "  echo \"📊 Check dotfile status: chezmoi status\""
-echo "  echo \"💻 Editor: nvim | Multiplexer: tmux | Shell: zsh\""
-echo "  echo \"📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)\""
-echo "  echo \"🔨 Update environment: ~/dev/update.sh\""
-echo "  echo \"\""
-echo "fi"
-else
-echo "# Minimal setup - no fastfetch banner"
-echo "echo \"WSL Arch Linux ready - configure as needed\""
-fi)
-
-# Editor aliases for WSL
-alias cursor='\$HOME/bin/cursor-wrapper.sh'
-alias code='\$HOME/bin/cursor-wrapper.sh'
-
-# Use Linux versions of tools
-if [ -f /usr/bin/git ]; then
-    alias git='/usr/bin/git'
-fi
-
-if [ -f /usr/bin/python3 ]; then
-    alias python3='/usr/bin/python3'
-fi
-
-# Alias neofetch to fastfetch for backward compatibility
-if command -v fastfetch >/dev/null 2>&1; then
-    alias neofetch='fastfetch'
-fi
-
-# Set npm to use Linux mode if available
-if command -v npm >/dev/null 2>&1; then
-    npm config set os linux >/dev/null 2>&1
-fi
-
-{{- else if eq .chezmoi.os "windows" }}
-# Windows specific configuration
-# Add Windows-specific aliases and environment variables here
-
-{{- end }}
-
-# Cross-platform aliases - work on both Windows and Linux
-alias vim='nvim'
-alias v='nvim'
-
-# Modern CLI tool aliases (available for all setups)
-alias ls='exa --icons --group-directories-first'
-alias ll='exa -l --icons --group-directories-first'
-alias la='exa -la --icons --group-directories-first'
-alias tree='exa --tree --icons'
-alias cat='bat'
-alias find='fd'
-alias grep='rg'
-
-# Fallback aliases if modern tools aren't available
-command -v exa >/dev/null || alias ls='ls --color=auto'
-command -v exa >/dev/null || alias ll='ls -la'
-command -v exa >/dev/null || alias la='ls -A'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias c='clear'
-
-# Git aliases
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit -m'
-alias gp='git push'
-alias gl='git pull'
-
-# Tmux aliases (Linux only but safe to have)
-alias t='tmux'
-alias ta='tmux attach -t'
-alias tn='tmux new -s'
-alias tl='tmux ls'
-
-# Chezmoi aliases (using config file instead of --source flag)
-alias cz='chezmoi'
-alias cza='chezmoi add'
-alias cze='chezmoi edit'
-alias czd='chezmoi diff'
-alias czap='chezmoi apply'
-alias czup='chezmoi update'
-
-# Better cd with zoxide (if available)
-if command -v zoxide >/dev/null 2>&1; then
-    eval "$(zoxide init zsh)"
-    alias cd='z'
-fi
-EOL
-    
-    if [ $? -ne 0 ]; then
-        print_error "Failed to create temporary Zsh configuration file"
-        rm -f "$TEMP_ZSHRC"
-        return 1
-    fi
-    
-    # Add to chezmoi
-    print_step "Managing zshrc with chezmoi..."
-    
-    # Check if ~/.zshrc already exists and backup if needed
-    backup_file "$HOME/.zshrc"
-    
-    # Copy our template to chezmoi source directory as template
-    cp "$TEMP_ZSHRC" "$CHEZMOI_SOURCE_DIR/dot_zshrc.tmpl"
-    
-    # Apply it to create the actual file
-    cd "$HOME" && chezmoi apply dot_zshrc
-    
-    # Verify it was applied correctly
-    if [ -f "$HOME/.zshrc" ]; then
-        print_success "Zsh configuration created and managed by chezmoi"
-    else
-        print_error "Failed to apply zshrc from chezmoi"
-        return 1
-    fi
-    
-    # Cleanup
-    rm -f "$TEMP_ZSHRC"
-    
-    return 0
-}
-
-# Setup Starship prompt
-setup_starship_prompt() {
-    print_header "Setting up Starship Prompt"
-    
-    # Install if not already installed via cargo
-    if ! command_exists starship; then
-        print_step "Installing Starship..."
-        curl -sS https://starship.rs/install.sh | sh -s -- -y
-    fi
-    
-    # Create config based on selected theme
-    ensure_dir "$HOME/.config"
-    
-    if [ "$SELECTED_THEME" = "minimal" ]; then
-        # Minimal starship config
-        cat > "$HOME/.config/starship.toml" << 'EOF'
-# Minimal Starship Configuration
-format = """$directory$git_branch$git_status$character"""
-
-[character]
-success_symbol = '[❯](bold green)'
-error_symbol = '[❯](bold red)'
-
-[directory]
-truncation_length = 3
-truncate_to_repo = true
-EOF
-    elif [ "$SELECTED_THEME" = "rose-pine" ]; then
-        cat > "$HOME/.config/starship.toml" << 'EOF'
-format = """
-[](#ea9a97)\
-$os\
-$username\
-[](bg:#f6c177 fg:#ea9a97)\
-$directory\
-[](fg:#f6c177 bg:#3e8fb0)\
-$git_branch\
-$git_status\
-[](fg:#3e8fb0 bg:#9ccfd8)\
-$c\
-$golang\
-$nodejs\
-$rust\
-$python\
-[](fg:#9ccfd8 bg:#c4a7e7)\
-$time\
-[ ](fg:#c4a7e7)\
-\n$character"""
-
-[username]
-show_always = true
-style_user = "bg:#ea9a97 fg:#232136"
-format = '[ $user ]($style)'
-
-[directory]
-style = "bg:#f6c177 fg:#232136"
-format = "[ $path ]($style)"
-truncation_length = 3
-
-[git_branch]
-symbol = ""
-style = "bg:#3e8fb0 fg:#232136"
-format = '[ $symbol $branch ]($style)'
-
-[time]
-disabled = false
-time_format = "%R"
-style = "bg:#c4a7e7 fg:#232136"
-format = '[ $time ]($style)'
-
-[character]
-success_symbol = '[➜](bold fg:#3e8fb0)'
-error_symbol = '[➜](bold fg:#eb6f92)'
-EOF
-    else
-        # Default config for other themes
-        cat > "$HOME/.config/starship.toml" << 'EOF'
-format = """$username$directory$git_branch$git_status$time$line_break$character"""
-
-[character]
-success_symbol = '[➜](bold green)'
-error_symbol = '[➜](bold red)'
-
-[directory]
-truncation_length = 3
-EOF
-    fi
-    
-    # Add to chezmoi
-    safe_add_to_chezmoi "$HOME/.config/starship.toml" "Starship prompt configuration" || true
-    
-    # Add starship to shell configs if not already there
-    if ! grep -q "starship init zsh" "$HOME/.zshrc" 2>/dev/null; then
-        echo 'eval "$(starship init zsh)"' >> "$HOME/.zshrc"
-        safe_add_to_chezmoi "$HOME/.zshrc" "Zsh configuration with Starship" --force || true
-    fi
-    
-    if ! grep -q "starship init bash" "$HOME/.bashrc" 2>/dev/null; then
-        echo 'eval "$(starship init bash)"' >> "$HOME/.bashrc"
-        safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration with Starship" --force || true
-    fi
-    
-    print_success "Starship prompt configured"
-    return 0
-}
-
-# Setup WSL-specific optimizations
-setup_wsl_optimizations() {
-    print_header "Applying WSL-Specific Optimizations"
-    
-    # Create WSL configuration
-    print_step "Creating WSL configuration..."
-    if [ ! -f /etc/wsl.conf ]; then
-        run_elevated tee /etc/wsl.conf > /dev/null << 'EOF'
-[boot]
-systemd=true
-
-[interop]
-enabled=true
-appendWindowsPath=false
-
-[network]
-generateHosts=false
-generateResolvConf=false
-EOF
-    fi
-    
-    # Add performance tweaks to shell configs
-    if ! grep -q "WSL2 Performance Optimizations" "$HOME/.zshrc" 2>/dev/null; then
-        cat >> "$HOME/.zshrc" << 'EOF'
-
-# WSL2 Performance Optimizations
-export WSL_INTEROP=/run/WSL/$(ls -1 /run/WSL | head -1)
-export GIT_DISCOVERY_ACROSS_FILESYSTEM=1
-export CHOKIDAR_USEPOLLING=1
-export NODE_OPTIONS="--max-old-space-size=4096"
-EOF
-        
-        # Update chezmoi
-        safe_add_to_chezmoi "$HOME/.zshrc" "Zsh configuration with WSL optimizations" --force || true
-    fi
-    
-    print_success "WSL optimizations applied"
-    return 0
-}
-
-# Install Nerd Fonts
-install_nerd_fonts() {
-    print_header "Installing Nerd Fonts"
-    
-    # Create fonts directory
-    ensure_dir "$HOME/.local/share/fonts"
-    
-    # Download JetBrains Mono Nerd Font
-    print_step "Downloading JetBrains Mono Nerd Font..."
-    curl -L -o "/tmp/JetBrainsMono.zip" \
-        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
-    
-    # Extract fonts
-    unzip -o "/tmp/JetBrainsMono.zip" -d "$HOME/.local/share/fonts/"
-    
-    # Update font cache
-    fc-cache -fv
-    
-    # Cleanup
-    rm -f "/tmp/JetBrainsMono.zip"
-    
-    print_success "Nerd Fonts installed"
-    return 0
-}
-
-# Setup system monitoring tools
-setup_system_monitoring() {
-    print_header "Setting up system monitoring tools"
-    
-    # Install monitoring tools
-    install_packages_robust "htop btop iotop nethogs" "system monitoring tools"
-    
-    # Create btop config with Rose Pine if selected
-    ensure_dir "$HOME/.config/btop"
-    if [ "$SELECTED_THEME" = "rose-pine" ]; then
-        echo 'color_theme = "rose-pine"' > "$HOME/.config/btop/btop.conf"
-    fi
-    
-    # Add to chezmoi
-    safe_add_to_chezmoi "$HOME/.config/btop/btop.conf" "btop configuration" || true
-    
-    print_success "System monitoring tools installed"
-    return 0
-}
-
-# Setup WSL clipboard integration
-setup_wsl_clipboard_integration() {
-    print_header "Setting up WSL clipboard integration"
-    
-    # Add to shell configs if not already there
-    if ! grep -q "WSL Clipboard integration" "$HOME/.zshrc" 2>/dev/null; then
-        cat >> "$HOME/.zshrc" << 'EOF'
-
-# WSL Clipboard integration
-alias pbcopy='clip.exe'
-alias pbpaste='powershell.exe -command "Get-Clipboard"'
-
-# Open in Windows browser
-export BROWSER='/mnt/c/Program Files/Mozilla Firefox/firefox.exe'
-alias browse='$BROWSER'
-EOF
-        
-        # Update chezmoi
-        safe_add_to_chezmoi "$HOME/.zshrc" "Zsh configuration with clipboard integration" --force || true
-    fi
-    
-    print_success "Clipboard integration configured"
-    return 0
-}
-
-# Setup tmux 
-setup_tmux() {
-    print_header "Setting up tmux configuration with Chezmoi"
-    
-    # Check if tmux is installed
-    if ! command_exists tmux; then
-        print_step "Installing tmux..."
-        run_elevated pacman -S --noconfirm --needed tmux 2>&1 | grep -v "warning: insufficient columns"
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            print_error "Failed to install tmux"
-            return 1
-        fi
-    fi
-    
-    # Create tmux configuration
-    print_step "Creating tmux configuration..."
-    TEMP_TMUX=$(mktemp)
-    
-    cat > "$TEMP_TMUX" << 'EOL'
-# Use Ctrl+a as prefix (easier to reach than Ctrl+b)
-unbind C-b
-set-option -g prefix C-a
-bind-key C-a send-prefix
-
-# Improve colors and terminal compatibility
-set -g default-terminal "screen-256color"
-
-# Start window numbering at 1
-set -g base-index 1
-set -g pane-base-index 1
-set -g renumber-windows on
-
-# Reload config with 'r'
-bind r source-file ~/.tmux.conf \; display "Config reloaded!"
-
-# Split windows with | and - (and keep current path)
-bind | split-window -h -c "#{pane_current_path}"
-bind - split-window -v -c "#{pane_current_path}"
-bind c new-window -c "#{pane_current_path}"
-
-# Better navigation with vim-like keys
-bind h select-pane -L
-bind j select-pane -D
-bind k select-pane -U
-bind l select-pane -R
-
-# Enable mouse support
-set -g mouse on
-
-# Increase scrollback buffer
-set -g history-limit 10000
-
-# Status bar - clean and informative
-set -g status-position top
-set -g status-style bg=default
-set -g status-left "#[fg=green]Session: #S #[fg=yellow]#I #[fg=cyan]#P "
-set -g status-left-length 40
-set -g status-right "#[fg=cyan]%d %b %R"
-set -g status-interval 60
-EOL
-    
-    if [ $? -ne 0 ]; then
-        print_error "Failed to create temporary tmux configuration"
-        rm -f "$TEMP_TMUX"
-        return 1
-    fi
-    
-    # Backup existing file if needed
-    backup_file "$HOME/.tmux.conf"
-    
-    # Copy our template to home directory
-    cp "$TEMP_TMUX" "$HOME/.tmux.conf"
-    
-    # Add to chezmoi using the safe function
-    safe_add_to_chezmoi "$HOME/.tmux.conf" "Tmux configuration"
-    local result=$?
-    
-    # Cleanup
-    rm -f "$TEMP_TMUX"
-    
-    if [ $result -ne 0 ]; then
-        print_error "Failed to add tmux.conf to chezmoi"
-        return 1
-    fi
-    
-    print_success "tmux configuration created and managed by chezmoi"
-    return 0
-}
-
-# Setup WSL utilities
-setup_wsl_utilities() {
-    print_header "Setting up WSL utilities with Chezmoi"
-    
-    # Temporary directory for WSL utility scripts
-    TEMP_DIR=$(mktemp -d)
-    
-    # Create Cursor wrapper
-    print_step "Creating Cursor wrapper script..."
-    cat > "$TEMP_DIR/cursor-wrapper.sh" << 'EOL'
-#!/bin/bash
-# Cursor wrapper script for WSL
-
-# If run with no arguments, open current directory
-if [ $# -eq 0 ]; then
-    cmd.exe /c "cursor" "$(wslpath -w "$(pwd)")" > /dev/null 2>&1
-    exit $?
-fi
-
-# Convert Linux paths to Windows paths when needed
-args=()
-for arg in "$@"; do
-    # Check if the argument is a file or directory that exists
-    if [ -e "$arg" ]; then
-        # Convert to Windows path
-        win_path=$(wslpath -w "$arg")
-        args+=("$win_path")
-    else
-        # Pass through as-is for flags or non-existent paths
-        args+=("$arg")
-    fi
-done
-
-# Launch Cursor via cmd.exe to avoid permission issues
-cmd.exe /c "cursor" "${args[@]}" > /dev/null 2>&1
-exit $?
-EOL
-    
-    # Create Windows path opener
-    print_step "Creating Windows path opener utility..."
-    cat > "$TEMP_DIR/winopen" << 'EOL'
-#!/bin/bash
-# Open current directory or specified path in Windows Explorer
-
-path_to_open="${1:-.}"
-windows_path=$(wslpath -w "$(realpath "$path_to_open")")
-explorer.exe "$windows_path"
-EOL
-    
-    # Create clipboard utility
-    print_step "Creating clipboard utility..."
-    cat > "$TEMP_DIR/clip-copy" << 'EOL'
-#!/bin/bash
-# Copy text to Windows clipboard
-
-if [ -p /dev/stdin ]; then
-  # If data is being piped in
-  cat - | clip.exe
-else
-  # If used with arguments
-  echo -n "$*" | clip.exe
-fi
-EOL
-    
-    # Create Cursor PATH helper for common Windows installation paths
-    print_step "Creating Cursor PATH helper..."
-    cat > "$TEMP_DIR/cursor-path.sh" << 'EOL'
-#!/bin/bash
-# Helper script to find and add Cursor to PATH if installed on Windows
-
-# Get Windows username (might be different from WSL username)
-WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-
-# Common Cursor installation paths
-CURSOR_PATHS=(
-    "/mnt/c/Users/$USER/AppData/Local/Programs/cursor/resources/app/bin"
-    "/mnt/c/Users/${WIN_USER}/AppData/Local/Programs/cursor/resources/app/bin"
-    "/mnt/c/Program Files/Cursor/resources/app/bin"
-    "/mnt/c/Users/*/AppData/Local/Programs/cursor/resources/app/bin"
-)
-
-# Check if cursor is already in PATH
-if command -v cursor >/dev/null 2>&1; then
-    exit 0
-fi
-
-# Try to find Cursor installation
-for path in "${CURSOR_PATHS[@]}"; do
-    if [ -f "$path/cursor" ]; then
-        # Add to PATH if not already there
-        if [[ ":$PATH:" != *":$path:"* ]]; then
-            export PATH="$PATH:$path"
-            echo "# Cursor PATH (auto-detected)" >> ~/.bashrc
-            echo "export PATH=\"\$PATH:$path\"" >> ~/.bashrc
-            echo "Added Cursor to PATH: $path"
-        fi
-        exit 0
-    fi
-done
-
-echo "Cursor installation not found in common Windows paths"
-exit 1
-EOL
-    
-    # Make scripts executable
-    chmod +x "$TEMP_DIR/cursor-wrapper.sh"
-    chmod +x "$TEMP_DIR/winopen"
-    chmod +x "$TEMP_DIR/clip-copy"
-    chmod +x "$TEMP_DIR/cursor-path.sh"
-    
-    # Create bin directory if it doesn't exist
-    ensure_dir ~/bin || return 1
-    
-    # Backup existing scripts if needed
-    for script in "cursor-wrapper.sh" "winopen" "clip-copy" "cursor-path.sh"; do
-        if [ -f "$HOME/bin/$script" ]; then
-            print_step "Backing up existing $script..."
-            mv "$HOME/bin/$script" "$HOME/bin/${script}.backup.$(date +%Y%m%d%H%M%S)"
-        fi
-    done
-    
-    # Copy scripts to bin directory
-    cp "$TEMP_DIR/cursor-wrapper.sh" "$HOME/bin/"
-    cp "$TEMP_DIR/winopen" "$HOME/bin/"
-    cp "$TEMP_DIR/clip-copy" "$HOME/bin/"
-    cp "$TEMP_DIR/cursor-path.sh" "$HOME/bin/"
-    
-    # Add bin directory to chezmoi using the safe function
-    print_step "Managing WSL utility scripts with chezmoi..."
-    local result=0
-    safe_add_to_chezmoi "$HOME/bin/cursor-wrapper.sh" "Cursor wrapper" || result=1
-    safe_add_to_chezmoi "$HOME/bin/winopen" "Windows path opener" || result=1
-    safe_add_to_chezmoi "$HOME/bin/clip-copy" "Clipboard utility" || result=1
-    safe_add_to_chezmoi "$HOME/bin/cursor-path.sh" "Cursor PATH helper" || result=1
-    
-    # Try to auto-detect Cursor installation and add to PATH
-    print_step "Checking for Cursor installation on Windows..."
-    if "$HOME/bin/cursor-path.sh"; then
-        print_success "Cursor found and added to PATH"
-    else
-        print_warning "Cursor not found in common Windows installation paths"
-        print_warning "You may need to install Cursor or manually add it to your PATH"
-    fi
-    
-    # Update bashrc with cursor alias via chezmoi
-    if ! grep -q "alias cursor=" ~/.bashrc; then
-        print_step "Configuring cursor and code aliases in .bashrc..."
-        echo 'alias cursor="$HOME/bin/cursor-wrapper.sh"' >> ~/.bashrc
-        echo 'alias code="$HOME/bin/cursor-wrapper.sh"' >> ~/.bashrc
-        
-        # Update bashrc in chezmoi
-        if chezmoi managed ~/.bashrc &>/dev/null; then
-            safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration with cursor alias" --force
-        fi
-    fi
-    
-    # Cleanup temporary directory
-    rm -rf "$TEMP_DIR"
-    
-    if [ $result -ne 0 ]; then
-        print_warning "Some WSL utilities may not have been added properly"
-        return 1
-    fi
-    
-    print_success "WSL utilities setup completed and managed by chezmoi"
-    return 0
-}
-
-# Setup bash helper for users who prefer bash
-setup_bashrc_helper() {
-    print_header "Setting up Bash quick reference with Chezmoi"
-    print_step "Adding quick reference to .bashrc..."
-    
-    # Check if .bashrc exists
-    if [ ! -f "$HOME/.bashrc" ]; then
-        print_warning "No .bashrc file found. Creating a basic one..."
-        touch "$HOME/.bashrc"
-    fi
-    
-    # First, make a backup of current .bashrc
-    BASHRC_BACKUP="$HOME/.bashrc.backup.$(date +%Y%m%d%H%M%S)"
-    cp "$HOME/.bashrc" "$BASHRC_BACKUP"
-    print_step "Backed up existing .bashrc to $BASHRC_BACKUP"
-    
-    # Create a temp file with the quick reference content
-    QUICK_REF=$(mktemp)
-    cat > "$QUICK_REF" << 'EOL'
-
-# Export chezmoi source directory
-export CHEZMOI_SOURCE_DIR="$HOME/dotfiles"
-
-# Display helpful quick reference after fastfetch
-if command -v fastfetch >/dev/null 2>&1; then
-  # Display a brief helpful summary
-  echo ""
-  echo "🚀 WSL Dev Environment - Quick Reference"
-  echo "───────────────────────────────────────"
-  echo "📝 Edit config files: chezmoi edit ~/.bashrc"
-  echo "🔄 Apply dotfile changes: chezmoi apply"
-  echo "📊 Check dotfile status: chezmoi status"
-  echo "💻 Editor: nvim | Multiplexer: tmux"
-  echo "📋 Docs: ~/dev/docs/ (try: cat ~/dev/docs/quick-reference.md)"
-  echo "🔨 Update environment: ~/dev/update.sh"
-  echo ""
-fi
-
-# Chezmoi aliases (using config file instead of --source flag)
-alias cz='chezmoi'
-alias cza='chezmoi add'
-alias cze='chezmoi edit'
-alias czd='chezmoi diff'
-alias czap='chezmoi apply'
-EOL
-    
-    # Check if fastfetch alias exists, add if not
-    if ! grep -q "alias neofetch='fastfetch'" "$HOME/.bashrc"; then
-        print_step "Configuring neofetch alias in .bashrc..."
-        echo "alias neofetch='fastfetch'" >> "$HOME/.bashrc"
-    fi
-    
-    # Check if quick reference already exists, add if not
-    if ! grep -q "WSL Dev Environment - Quick Reference" "$HOME/.bashrc"; then
-        print_step "Configuring quick reference in .bashrc..."
-        cat "$QUICK_REF" >> "$HOME/.bashrc"
-    else
-        print_step "Quick reference already exists in .bashrc"
-    fi
-    
-    # Important: Add .bashrc to chezmoi AFTER all modifications
-    print_step "Managing .bashrc with chezmoi..."
-    if chezmoi managed ~/.bashrc &>/dev/null; then
-        # Already managed by chezmoi, update it
-        print_step "Updating .bashrc in chezmoi..."
-        safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration" --force
-    else
-        # First time managing with chezmoi
-        safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration"
-    fi
-    
-    local result=$?
-    if [ $result -ne 0 ]; then
-        print_error "Failed to add .bashrc to chezmoi"
-        print_warning "Restoring backup of .bashrc..."
-        cp "$BASHRC_BACKUP" "$HOME/.bashrc"
-        rm -f "$QUICK_REF"
-        return 1
-    fi
-    
-    # Verify that NVM configuration is preserved
-    if grep -q "export NVM_DIR=\"\$HOME/.nvm\"" "$HOME/.bashrc"; then
-        print_success "NVM configuration preserved in .bashrc"
-    else
-        # If NVM config is missing, check if it was in the backup and restore it
-        if grep -q "export NVM_DIR=\"\$HOME/.nvm\"" "$BASHRC_BACKUP"; then
-            print_warning "NVM configuration was missing, restoring it..."
-            # Extract NVM config from backup and append to current .bashrc
-            grep -A 3 "export NVM_DIR" "$BASHRC_BACKUP" >> "$HOME/.bashrc"
-            # Update chezmoi again
-            safe_add_to_chezmoi "$HOME/.bashrc" "Bash configuration with NVM" --force
-            if [ $? -eq 0 ]; then
-                print_success "NVM configuration restored and added to chezmoi"
-            else
-                print_error "Failed to update .bashrc in chezmoi with NVM configuration"
-            fi
-        else
-            print_warning "No NVM configuration found in .bashrc"
-        fi
-    fi
-    
-    # Cleanup
-    rm -f "$QUICK_REF"
-    
-    print_success ".bashrc setup completed and managed by chezmoi"
-    return 0
-}
-
-# Setup dotfiles repository for chezmoi
+# Setup dotfiles repository
 setup_dotfiles_repo() {
     print_header "Setting up dotfiles repository"
     
-    # Check if chezmoi is available
-    if ! command_exists chezmoi; then
-        print_error "Chezmoi is not installed. Run setup_chezmoi first."
-        return 1
-    fi
+    # This function works whether using chezmoi or not
     
     # Check if git is available
     if ! command_exists git; then
@@ -2390,11 +1320,11 @@ setup_dotfiles_repo() {
     fi
     
     # Check if we already have a dotfiles repository
-    if [ -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
+    if [ -d "$DOTFILES_DIR/.git" ]; then
         print_step "Dotfiles repository already initialized"
         
-        # Change to the source directory
-        cd "$CHEZMOI_SOURCE_DIR" || return 1
+        # Change to the dotfiles directory
+        cd "$DOTFILES_DIR" || return 1
         
         # Make sure we're on the main branch
         git checkout main 2>/dev/null || git checkout -b main
@@ -2404,16 +1334,24 @@ setup_dotfiles_repo() {
             # If not, stage all files and make an initial commit
             print_step "Creating initial commit on main branch..."
             git add .
-            git commit -m "Initial commit: My dotfiles managed by Chezmoi"
+            if [ "$USE_CHEZMOI" = true ]; then
+                git commit -m "Initial commit: My dotfiles managed by Chezmoi"
+            else
+                git commit -m "Initial commit: My dotfiles"
+            fi
         fi
         
         # Setup GitHub repository
-        setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
+        if [ "$USE_CHEZMOI" = true ]; then
+            setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
+        else
+            setup_github_repository "dotfiles" "My WSL dotfiles"
+        fi
     else
         print_step "Initializing dotfiles repository"
         
-        # Initialize git in chezmoi source directory
-        cd "$CHEZMOI_SOURCE_DIR" || return 1
+        # Initialize git in dotfiles directory
+        cd "$DOTFILES_DIR" || return 1
         
         # Initialize Git and set main as the default branch
         git init -b main
@@ -2422,10 +1360,18 @@ setup_dotfiles_repo() {
         git add .
         
         # Create initial commit with a meaningful message
-        git commit -m "Initial commit: My dotfiles managed by Chezmoi"
+        if [ "$USE_CHEZMOI" = true ]; then
+            git commit -m "Initial commit: My dotfiles managed by Chezmoi"
+        else
+            git commit -m "Initial commit: My dotfiles"
+        fi
         
         # Setup GitHub repository
-        setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
+        if [ "$USE_CHEZMOI" = true ]; then
+            setup_github_repository "dotfiles" "My dotfiles managed by Chezmoi"
+        else
+            setup_github_repository "dotfiles" "My WSL dotfiles"
+        fi
     fi
     
     print_success "Dotfiles repository setup completed"
@@ -2442,8 +1388,8 @@ setup_github_repository() {
         return 1
     fi
     
-    # Change directory to chezmoi source directory
-    cd "$CHEZMOI_SOURCE_DIR" || return 1
+    # Change directory to dotfiles directory
+    cd "$DOTFILES_DIR" || return 1
     
     echo -e "\n${BLUE}Do you want to push your dotfiles to a GitHub repository? (y/n) [y]${NC}"
     read -r push_to_github
@@ -2518,7 +1464,7 @@ setup_github_repository() {
                 GITHUB_REPO_CREATED=true
             else 
                 print_warning "Failed to push to GitHub. You can try again later with:"
-                print_warning "cd $CHEZMOI_SOURCE_DIR && git push -u origin $current_branch"
+                print_warning "cd $DOTFILES_DIR && git push -u origin $current_branch"
                 print_warning "You may need to create the repository manually at https://github.com/new"
             fi
         else
@@ -2542,7 +1488,7 @@ setup_github_repository() {
                 
                 print_step "To push your dotfiles to GitHub:"
                 print_warning "1. Create a repository named '$repo_name' on GitHub"
-                print_warning "2. Run: cd $CHEZMOI_SOURCE_DIR && git push -u origin $current_branch"
+                print_warning "2. Run: cd $DOTFILES_DIR && git push -u origin $current_branch"
             fi
         fi
     fi
@@ -2550,9 +1496,86 @@ setup_github_repository() {
     return 0
 }
 
-# Setup Git configuration with chezmoi
+# Setup Windows terminal configurations (like WezTerm)
+setup_windows_terminal_configs() {
+    print_header "Setting up Windows Terminal Configurations"
+    
+    # Get Windows username
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    if [ -z "$WIN_USER" ]; then
+        print_step "Enter your Windows username:"
+        read -r WIN_USER
+    fi
+    
+    # Check for WezTerm configuration
+    local wezterm_windows_path="/mnt/c/Users/$WIN_USER/dotfiles/.wez/.wezterm.lua"
+    local wezterm_config_path="/mnt/c/Users/$WIN_USER/.config/wezterm/wezterm.lua"
+    local wezterm_dotfiles_path="$DOTFILES_DIR/.config/wezterm/wezterm.lua"
+    
+    # Check various possible WezTerm config locations
+    if [ -f "$wezterm_windows_path" ]; then
+        print_success "Found WezTerm config at: $wezterm_windows_path"
+        
+        # If using chezmoi, add it for management
+        if [ "$USE_CHEZMOI" = true ]; then
+            print_step "Setting up chezmoi to manage your existing WezTerm config..."
+            
+            # Create the config directory in dotfiles
+            ensure_dir "$DOTFILES_DIR/.config/wezterm"
+            
+            # Create a symlink in dotfiles to the Windows config
+            if [ ! -L "$wezterm_dotfiles_path" ]; then
+                ln -sf "$wezterm_windows_path" "$wezterm_dotfiles_path"
+            fi
+            
+            # Add to chezmoi
+            safe_add_to_chezmoi "$wezterm_dotfiles_path" "WezTerm configuration"
+        fi
+        
+        print_step "Your existing WezTerm configuration will be used"
+        print_step "Edit it at: $(echo "$wezterm_windows_path" | sed 's|/mnt/c|C:|')"
+        
+    elif [ -f "$wezterm_config_path" ]; then
+        print_success "Found WezTerm config at standard Windows location"
+        
+        if [ "$USE_CHEZMOI" = true ]; then
+            print_step "Setting up chezmoi to manage your existing WezTerm config..."
+            
+            # Create the config directory in dotfiles
+            ensure_dir "$DOTFILES_DIR/.config/wezterm"
+            
+            # Create a symlink in dotfiles to the Windows config
+            if [ ! -L "$wezterm_dotfiles_path" ]; then
+                ln -sf "$wezterm_config_path" "$wezterm_dotfiles_path"
+            fi
+            
+            # Add to chezmoi
+            safe_add_to_chezmoi "$wezterm_dotfiles_path" "WezTerm configuration"
+        fi
+        
+        print_step "Your existing WezTerm configuration will be used"
+        print_step "Edit it at: $(echo "$wezterm_config_path" | sed 's|/mnt/c|C:|')"
+    else
+        print_step "No WezTerm configuration found"
+        print_step "If you use WezTerm, place your config at one of these locations:"
+        print_step "  • C:\\Users\\$WIN_USER\\dotfiles\\.wez\\.wezterm.lua"
+        print_step "  • C:\\Users\\$WIN_USER\\.config\\wezterm\\wezterm.lua"
+    fi
+    
+    # Check for Windows Terminal settings
+    local windows_terminal_path="/mnt/c/Users/$WIN_USER/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"
+    if [ -f "$windows_terminal_path" ]; then
+        print_success "Found Windows Terminal settings"
+        print_step "Your Windows Terminal settings are at: $(echo "$windows_terminal_path" | sed 's|/mnt/c|C:|')"
+        print_step "Note: Windows Terminal settings are managed separately from WSL dotfiles"
+    fi
+    
+    return 0
+}
+
+# Setup Git configuration
 setup_git_config() {
-    print_header "Setting up Git configuration with Chezmoi"
+    print_header "Setting up Git configuration"
     
     # Check if Git is installed
     if ! command_exists git; then
@@ -2567,11 +1590,25 @@ setup_git_config() {
     # Prompt for Git configuration
     print_step "Setting up Git user configuration..."
     
+    # Store Git config in dotfiles directory
+    local git_config_path="$DOTFILES_DIR/.gitconfig"
+    
     # Check if user already has Git config
-    if [ -f "$HOME/.gitconfig" ]; then
-        print_step "Existing Git configuration found. Managing with chezmoi..."
-        safe_add_to_chezmoi "$HOME/.gitconfig" "Git configuration"
-        return $?
+    if [ -f "$git_config_path" ]; then
+        print_step "Existing Git configuration found in dotfiles."
+        
+        # Create symlink if it doesn't exist
+        if [ ! -L "$HOME/.gitconfig" ]; then
+            print_step "Creating symlink for Git configuration..."
+            ln -sf "$git_config_path" "$HOME/.gitconfig"
+        fi
+        
+        # Add to chezmoi if enabled
+        if [ "$USE_CHEZMOI" = true ]; then
+            safe_add_to_chezmoi "$HOME/.gitconfig" "Git configuration"
+        fi
+        
+        return 0
     fi
     
     # Prompt for user information
@@ -2587,10 +1624,8 @@ setup_git_config() {
         echo -e "${BLUE}Enter your Git email address:${NC}"
         read -r git_email
         
-        # Create temporary gitconfig
-        TEMP_GITCONFIG=$(mktemp)
-        
-        cat > "$TEMP_GITCONFIG" << EOL
+        # Create git config in dotfiles directory
+        cat > "$git_config_path" << EOL
 [user]
     name = $git_name
     email = $git_email
@@ -2607,15 +1642,17 @@ setup_git_config() {
     default = simple
 EOL
         
-        # Copy to home directory
-        cp "$TEMP_GITCONFIG" "$HOME/.gitconfig"
+        # Create symlink to home directory
+        print_step "Creating symlink for Git configuration..."
+        ln -sf "$git_config_path" "$HOME/.gitconfig"
         
-        # Add to chezmoi
-        print_step "Managing Git configuration with chezmoi..."
-        safe_add_to_chezmoi "$HOME/.gitconfig" "Git configuration"
+        # Add to chezmoi if enabled
+        if [ "$USE_CHEZMOI" = true ]; then
+            print_step "Managing Git configuration with chezmoi..."
+            safe_add_to_chezmoi "$HOME/.gitconfig" "Git configuration"
+        fi
         
-        # Cleanup
-        rm -f "$TEMP_GITCONFIG"
+        print_success "Git configuration created in dotfiles directory"
     else
         print_step "Skipping Git configuration setup"
     fi
@@ -2957,6 +1994,156 @@ For more information, visit [Claude Code Documentation](https://docs.anthropic.c
 EOL
     
     print_success "Claude Code documentation created successfully"
+    return 0
+}
+
+# Create manual dotfile management documentation
+create_manual_dotfile_docs() {
+    print_header "Creating dotfile management documentation"
+    
+    ensure_dir "$SETUP_DIR/docs/dotfiles" || return 1
+    
+    # Create a basic documentation file
+    cat > "$SETUP_DIR/docs/dotfiles/getting-started.md" << EOL
+# Getting Started with Manual Dotfile Management
+
+Your dotfiles are stored in: \`$DOTFILES_DIR\`
+
+$(if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
+    echo "This is a **unified Windows + WSL setup** that allows cross-platform dotfile editing!"
+    echo ""
+    echo "### Cross-Platform Access"
+    echo ""
+    echo "- **WSL path:** \`$DOTFILES_DIR\`"
+    echo "- **Windows path:** \`$(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')\`"
+    echo ""
+    echo "You can edit your dotfiles from either Windows or WSL:"
+    echo ""
+    echo "1. **From Windows:** Open \`$(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')\` in your editor"
+    echo "2. **From WSL:** Edit files directly in \`$DOTFILES_DIR\`"
+else
+    echo "This is a **WSL-only setup** with dotfiles stored in your WSL file system."
+fi)
+
+## How It Works
+
+Your configuration files are organized in the dotfiles directory with the same structure as your home directory:
+
+\`\`\`
+$DOTFILES_DIR/
+├── .gitconfig           # Git configuration
+├── .config/
+│   ├── nvim/           # Neovim configuration
+│   ├── ghostty/        # Ghostty terminal config
+│   └── wezterm/        # WezTerm config (if applicable)
+└── .git/               # Version control
+\`\`\`
+
+## Managing Your Dotfiles
+
+### Adding New Configuration Files
+
+1. **Create or copy the config to the dotfiles directory:**
+   \`\`\`bash
+   # Example: Adding a new .tmux.conf
+   cp ~/.tmux.conf $DOTFILES_DIR/.tmux.conf
+   \`\`\`
+
+2. **Create a symlink from your home directory:**
+   \`\`\`bash
+   ln -sf $DOTFILES_DIR/.tmux.conf ~/.tmux.conf
+   \`\`\`
+
+3. **Add to version control:**
+   \`\`\`bash
+   cd $DOTFILES_DIR
+   git add .tmux.conf
+   git commit -m "Add tmux configuration"
+   git push
+   \`\`\`
+
+### Editing Existing Configurations
+
+Since your configs are symlinked, you can edit them in two ways:
+
+1. **Edit the symlink (appears to edit the file in home):**
+   \`\`\`bash
+   nvim ~/.gitconfig
+   \`\`\`
+
+2. **Edit directly in the dotfiles directory:**
+   \`\`\`bash
+   nvim $DOTFILES_DIR/.gitconfig
+   \`\`\`
+
+Both methods edit the same file!
+
+### Syncing Changes
+
+After making changes, commit and push them:
+
+\`\`\`bash
+cd $DOTFILES_DIR
+git add -A
+git commit -m "Update configurations"
+git push
+\`\`\`
+
+### Setting Up on a New Machine
+
+1. **Clone your dotfiles repository:**
+   \`\`\`bash
+   git clone https://github.com/yourusername/dotfiles.git ~/dotfiles
+   \`\`\`
+
+2. **Create symlinks for each config:**
+   \`\`\`bash
+   # Example for common configs
+   ln -sf ~/dotfiles/.gitconfig ~/.gitconfig
+   ln -sf ~/dotfiles/.config/nvim ~/.config/nvim
+   # ... repeat for other configs
+   \`\`\`
+
+## Best Practices
+
+1. **Keep sensitive data out**: Don't commit passwords, API keys, or tokens
+2. **Use .gitignore**: Exclude machine-specific or generated files
+3. **Document your setup**: Keep a README in your dotfiles repo
+4. **Regular commits**: Commit changes frequently with descriptive messages
+
+## Common Commands
+
+\`\`\`bash
+# Go to dotfiles directory
+cd $DOTFILES_DIR
+
+# Check status
+git status
+
+# See what changed
+git diff
+
+# Add all changes
+git add -A
+
+# Commit with message
+git commit -m "Description of changes"
+
+# Push to GitHub
+git push
+\`\`\`
+
+## Tips
+
+- Use descriptive commit messages like "Add tmux mouse support" instead of "Update .tmux.conf"
+- Consider organizing configs by topic (e.g., a "shell" directory for all shell-related configs)
+- Test configuration changes before committing
+- Keep a changelog or notes about significant changes
+
+Your dotfiles repository makes it easy to maintain consistent configurations across machines and track changes over time!
+EOL
+    
+    print_success "Manual dotfile management documentation created"
     return 0
 }
 
@@ -3774,7 +2961,9 @@ display_completion_message() {
     fi
     echo -e "• Tmux (terminal multiplexer): ${GREEN}tmux${NC}"
     echo -e "• Zsh (shell): ${GREEN}zsh${NC}"
-    echo -e "• Chezmoi (dotfile manager): ${GREEN}chezmoi${NC}"
+    if [ "$USE_CHEZMOI" = true ]; then
+        echo -e "• Chezmoi (dotfile manager): ${GREEN}chezmoi${NC}"
+    fi
     echo -e "• Node.js (JavaScript runtime): ${GREEN}node${NC}"
     echo -e "• Cursor wrapper: ${GREEN}cursor${NC} or ${GREEN}code${NC}"
     if command_exists claude; then
@@ -3786,8 +2975,10 @@ display_completion_message() {
     echo -e "Workflow guide: ${GREEN}cat ~/dev/docs/workflow-guide.md${NC}"
     echo -e "Quick reference: ${GREEN}cat $QUICK_REF_PATH${NC}"
     echo -e "All documentation: ${GREEN}ls ~/dev/docs/${NC}"
-    echo -e "Chezmoi setup guide: ${GREEN}cat ~/dev/docs/chezmoi/getting-started.md${NC}"
-    echo -e "Chezmoi user guide: ${BLUE}https://chezmoi.io/user-guide/${NC}"
+    if [ "$USE_CHEZMOI" = true ]; then
+        echo -e "Chezmoi setup guide: ${GREEN}cat ~/dev/docs/chezmoi/getting-started.md${NC}"
+        echo -e "Chezmoi user guide: ${BLUE}https://chezmoi.io/user-guide/${NC}"
+    fi
     
     # Show update script location
     echo -e "\n${CYAN}Updates:${NC}"
@@ -3795,13 +2986,21 @@ display_completion_message() {
     
     # Show dotfiles information
     echo -e "\n${CYAN}Dotfiles Management:${NC}"
-    if [[ "$CHEZMOI_SOURCE_DIR" == "/mnt/c/"* ]]; then
+    if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
         echo -e "${GREEN}✓ Unified Windows + WSL dotfiles enabled${NC}"
-        echo -e "Windows path: ${BLUE}$(echo "$CHEZMOI_SOURCE_DIR" | sed 's|/mnt/c|C:|')${NC}"
-        echo -e "WSL path: ${BLUE}$CHEZMOI_SOURCE_DIR${NC}"
+        echo -e "Windows path: ${BLUE}$(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')${NC}"
+        echo -e "WSL path: ${BLUE}$DOTFILES_DIR${NC}"
         echo -e "Edit from either Windows or WSL - changes sync automatically!"
     else
-        echo -e "WSL-only dotfiles: ${BLUE}$CHEZMOI_SOURCE_DIR${NC}"
+        echo -e "WSL-only dotfiles: ${BLUE}$DOTFILES_DIR${NC}"
+    fi
+    
+    if [ "$USE_CHEZMOI" = true ]; then
+        echo -e "Dotfile manager: ${GREEN}Chezmoi enabled${NC}"
+        echo -e "Apply changes with: ${GREEN}chezmoi apply${NC}"
+    else
+        echo -e "Dotfile manager: ${YELLOW}Manual management (no Chezmoi)${NC}"
+        echo -e "Edit configs directly in: ${BLUE}$DOTFILES_DIR${NC}"
     fi
     
     echo -e "\n${CYAN}Cursor Setup:${NC}"
@@ -3857,8 +3056,7 @@ fi
 # Bootstrap the environment first
 bootstrap_arch || exit 1
 
-# Theme selection
-select_theme || SELECTED_THEME="minimal"
+# No theme selection - clean minimal setup
 
 # Step 1: Initial setup
 setup_workspace || exit 1
@@ -3870,39 +3068,38 @@ install_core_deps || exit 1
 # Set up GitHub information after core deps are installed
 setup_github_info || exit 1
 
-# Step 2: Set up chezmoi early for dotfile management (FIXED version for user's setup)
-setup_chezmoi || exit 1
+# Step 2: Set up dotfiles directory and optionally chezmoi
+determine_dotfiles_directory || exit 1
+ask_chezmoi || exit 1
+if [ "$USE_CHEZMOI" = true ]; then
+    setup_chezmoi || exit 1
+fi
 
 # Step 3: Enhanced installations
 install_modern_cli_tools || print_warning "Modern CLI tools installation failed, continuing..."
-setup_modern_terminal || print_warning "Modern terminal setup failed, continuing..."
-install_nerd_fonts || print_warning "Nerd fonts installation failed, continuing..."
+setup_ghostty_terminal || print_warning "Ghostty terminal setup failed, continuing..."
+setup_windows_terminal_configs || print_warning "Windows terminal config setup failed, continuing..."
 install_fastfetch || print_warning "Fastfetch installation failed, continuing..."
 install_neovim || { print_error "Neovim installation failed"; exit 1; }
 setup_nvim_config || exit 1
-setup_enhanced_nvim || print_warning "Enhanced Neovim setup failed, continuing..."
 setup_git_config || print_warning "Git config setup failed, continuing..."
-setup_zsh || { print_error "Zsh setup failed"; exit 1; }
 setup_nodejs || exit 1
-setup_starship_prompt || print_warning "Starship prompt setup failed, continuing..."
 
-# Step 4: Configure dotfiles
-setup_zshrc || exit 1
-setup_tmux || exit 1
-setup_wsl_utilities || exit 1
-setup_wsl_optimizations || print_warning "WSL optimizations failed, continuing..."
-setup_wsl_clipboard_integration || print_warning "WSL clipboard integration failed, continuing..."
-setup_bashrc_helper || exit 1
+# Step 4: Configure dotfiles (basic shell configs)
+# Note: Additional configuration like zsh, tmux, etc. will be managed through dotfiles
 
 # Step 5: Optional tools
 setup_claude_code || print_warning "Claude Code installation skipped or failed, continuing..."
-setup_system_monitoring || print_warning "System monitoring tools setup failed, continuing..."
 
 # Step 6: Documentation
 if command_exists claude; then
     create_claude_code_docs || print_warning "Claude Code docs creation failed, continuing..."
 fi
-create_chezmoi_docs || exit 1
+if [ "$USE_CHEZMOI" = true ]; then
+    create_chezmoi_docs || print_warning "Chezmoi docs creation failed, continuing..."
+else
+    create_manual_dotfile_docs || print_warning "Manual dotfile docs creation failed, continuing..."
+fi
 create_component_docs || exit 1
 create_update_script || exit 1
 
