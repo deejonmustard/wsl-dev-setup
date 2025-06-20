@@ -177,24 +177,43 @@ bootstrap_arch() {
             read -r new_username
             
             if [ -n "$new_username" ]; then
-                # Create user with home directory
-                print_step "Creating user $new_username..."
-                useradd -m -G wheel -s /bin/bash "$new_username"
+                # Check if user already exists
+                if id "$new_username" &>/dev/null; then
+                    print_step "User $new_username already exists"
+                    
+                    # Check if user is in wheel group
+                    if ! groups "$new_username" | grep -q wheel; then
+                        print_step "Adding $new_username to wheel group..."
+                        usermod -a -G wheel "$new_username"
+                    fi
+                    
+                    # Ask if they want to reset password
+                    echo -e "${BLUE}Would you like to reset the password for $new_username? (y/n) [n]${NC}"
+                    read -r reset_password
+                    if [[ "$reset_password" =~ ^[Yy]$ ]]; then
+                        echo -e "${BLUE}Please set a password for $new_username:${NC}"
+                        passwd "$new_username"
+                    fi
+                else
+                    # Create user with home directory
+                    print_step "Creating user $new_username..."
+                    useradd -m -G wheel -s /bin/bash "$new_username"
+                    
+                    # Set password
+                    echo -e "${BLUE}Please set a password for $new_username:${NC}"
+                    passwd "$new_username"
+                fi
                 
-                # Set password
-                echo -e "${BLUE}Please set a password for $new_username:${NC}"
-                passwd "$new_username"
-                
-                # Configure sudo for wheel group
+                # Configure sudo for wheel group (always ensure this is set)
                 print_step "Configuring sudo access..."
                 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
                 
-                # Set as default WSL user
+                # Set as default WSL user (always ensure this is set)
                 print_step "Setting $new_username as default WSL user..."
                 echo "[user]" > /etc/wsl.conf
                 echo "default=$new_username" >> /etc/wsl.conf
                 
-                print_success "User $new_username created successfully!"
+                print_success "User $new_username configured successfully!"
                 print_warning "Please restart WSL and run this script again as $new_username"
                 print_step "To restart WSL, run in PowerShell: wsl.exe --terminate archlinux"
                 exit 0
