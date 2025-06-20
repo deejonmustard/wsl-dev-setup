@@ -246,7 +246,17 @@ install_packages_robust() {
     while [ $attempt -le $max_attempts ]; do
         print_step "Installing $description (attempt $attempt of $max_attempts)..."
         
-        if run_elevated pacman -S --noconfirm --needed $packages 2>&1 | grep -v "warning: insufficient columns"; then
+        # Handle provider selection automatically in non-interactive mode
+        if [ "$INTERACTIVE_MODE" = false ]; then
+            # Auto-select first option for any provider prompts (like jack)
+            printf "1\n" | run_elevated pacman -S --noconfirm --needed $packages 2>&1 | grep -v "warning: insufficient columns"
+            local install_result=${PIPESTATUS[1]}
+        else
+            run_elevated pacman -S --noconfirm --needed $packages 2>&1 | grep -v "warning: insufficient columns"
+            local install_result=${PIPESTATUS[0]}
+        fi
+        
+        if [ $install_result -eq 0 ]; then
             print_success "$description installed successfully"
             return 0
         else
@@ -284,19 +294,28 @@ safe_add_to_chezmoi() {
     
     print_step "Managing $description with chezmoi..."
     if [ "$force" = "--force" ]; then
-        if ! chezmoi add --force "$target_file"; then
-            print_error "Failed to add $description to chezmoi"
-            return 1
+        # Use --force and auto-answer yes to template attribute questions
+        if [ "$INTERACTIVE_MODE" = false ]; then
+            printf "yes\n" | chezmoi add --force "$target_file" 2>/dev/null
+        else
+            chezmoi add --force "$target_file"
         fi
     else
-        if ! chezmoi add "$target_file"; then
-            print_error "Failed to add $description to chezmoi"
-            return 1
+        # Auto-answer yes to template attribute questions in non-interactive mode
+        if [ "$INTERACTIVE_MODE" = false ]; then
+            printf "yes\n" | chezmoi add "$target_file" 2>/dev/null
+        else
+            chezmoi add "$target_file"
         fi
     fi
     
-    print_success "$description managed by chezmoi"
-    return 0
+    if [ $? -eq 0 ]; then
+        print_success "$description managed by chezmoi"
+        return 0
+    else
+        print_error "Failed to add $description to chezmoi"
+        return 1
+    fi
 }
 
 # Initialize NVM environment
@@ -404,7 +423,22 @@ determine_dotfiles_directory() {
     ensure_dir "$DOTFILES_DIR/.config/tmux" || return 1
     ensure_dir "$DOTFILES_DIR/bin" || return 1
     
+    # Export DOTFILES_DIR as global variable
+    export DOTFILES_DIR
+    
+    # Verify directory exists and is accessible
+    if [ ! -d "$DOTFILES_DIR" ]; then
+        print_error "Dotfiles directory creation failed: $DOTFILES_DIR"
+        return 1
+    fi
+    
+    if [ ! -w "$DOTFILES_DIR" ]; then
+        print_error "Dotfiles directory is not writable: $DOTFILES_DIR"
+        return 1
+    fi
+    
     print_success "Dotfiles directory configured at: $DOTFILES_DIR"
+    print_step "Directory verified: $(ls -ld "$DOTFILES_DIR")"
     
     # Show cross-platform information if using unified directory
     if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
@@ -905,41 +939,7 @@ setup_music_system() {
     
     # Install MPD (Music Player Daemon) and related tools
     print_step "Installing MPD and audio dependencies..."
-    install_packages_robust "mpd mpc alsa-utils pulseaudio" "music player daemon and audio system"
-    
-    # Install rmpc from cargo if available, or build from source
-    if command_exists cargo; then
-        print_step "Installing rmpc music client..."
-        
-        # Install from crates.io if available
-        if cargo install rmpc 2>/dev/null; then
-            print_success "rmpc installed from crates.io"
-        else
-            # Build from source as fallback
-            print_step "Building rmpc from source..."
-            local temp_dir=$(mktemp -d)
-            cd "$temp_dir" || return 1
-            
-            if git clone https://github.com/mierak/rmpc.git; then
-                cd rmpc || return 1
-                if cargo build --release; then
-                    cp target/release/rmpc "$HOME/.local/bin/"
-                    chmod +x "$HOME/.local/bin/rmpc"
-                    print_success "rmpc built and installed from source"
-                else
-                    print_warning "Failed to build rmpc from source"
-                fi
-            else
-                print_warning "Failed to clone rmpc repository"
-            fi
-            
-            cd "$HOME" || return 1
-            rm -rf "$temp_dir"
-        fi
-    else
-        print_warning "Cargo not available, skipping rmpc installation"
-        return 1
-    fi
+    install_packages_robust "mpd rmpc mpc alsa-utils pulseaudio" "music player daemon and audio system"
     
     # Get Windows username for music path
     WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
@@ -1215,45 +1215,18 @@ EOF
     return 0
 }
 
-# Setup Ghostty terminal (Linux-only terminal)
+# Setup Ghostty terminal (now available in Arch repos)
 setup_ghostty_terminal() {
     print_header "Setting up Ghostty Terminal"
     
-    # Install dependencies for building Ghostty
-    install_packages_robust "cmake freetype2 fontconfig pkg-config zig" "terminal dependencies"
+    # Install Ghostty from official Arch repository
+    print_step "Installing Ghostty terminal from Arch repository..."
+    install_packages_robust "ghostty" "Ghostty terminal"
     
-    # Install Ghostty from source since it's not in Arch repos yet
-    print_step "Installing Ghostty terminal from source..."
-    
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir" || return 1
-    
-    # Clone and build Ghostty
-    if git clone https://github.com/ghostty-org/ghostty.git; then
-        cd ghostty || return 1
-        
-        print_step "Building Ghostty (this may take a few minutes)..."
-        if zig build -Doptimize=ReleaseFast; then
-            # Install to user's local bin
-            ensure_dir "$HOME/.local/bin"
-            cp zig-out/bin/ghostty "$HOME/.local/bin/"
-            chmod +x "$HOME/.local/bin/ghostty"
-            print_success "Ghostty installed successfully"
-        else
-            print_warning "Failed to build Ghostty, skipping installation"
-            cd "$HOME" || return 1
-            rm -rf "$temp_dir"
-            return 1
-        fi
-    else
-        print_warning "Failed to clone Ghostty repository, skipping installation"
-        cd "$HOME" || return 1
-        rm -rf "$temp_dir"
+    if [ $? -ne 0 ]; then
+        print_warning "Failed to install Ghostty from repository, skipping..."
         return 1
     fi
-    
-    cd "$HOME" || return 1
-    rm -rf "$temp_dir"
     
     # Create Ghostty config in dotfiles directory
     local ghostty_config_dir="$DOTFILES_DIR/.config/ghostty"
@@ -3108,6 +3081,56 @@ EOL
     return 0
 }
 
+# Verify dotfiles symlinks are working
+verify_dotfiles_setup() {
+    print_header "Verifying Dotfiles Setup"
+    
+    local failed=false
+    
+    # Check if DOTFILES_DIR exists and is accessible
+    if [ ! -d "$DOTFILES_DIR" ]; then
+        print_error "Dotfiles directory does not exist: $DOTFILES_DIR"
+        failed=true
+    else
+        print_success "Dotfiles directory exists: $DOTFILES_DIR"
+    fi
+    
+    # Check common symlinks
+    local configs_to_check=(
+        "$HOME/.gitconfig:$DOTFILES_DIR/.gitconfig"
+        "$HOME/.zshrc:$DOTFILES_DIR/.zshrc" 
+        "$HOME/.tmux.conf:$DOTFILES_DIR/.tmux.conf"
+        "$HOME/.config/nvim:$DOTFILES_DIR/.config/nvim"
+    )
+    
+    for config_pair in "${configs_to_check[@]}"; do
+        local symlink_path="${config_pair%%:*}"
+        local target_path="${config_pair##*:}"
+        
+        if [ -L "$symlink_path" ]; then
+            local actual_target=$(readlink "$symlink_path")
+            if [ "$actual_target" = "$target_path" ] && [ -e "$target_path" ]; then
+                print_success "✓ $symlink_path → $target_path"
+            else
+                print_error "✗ $symlink_path → $actual_target (target missing or incorrect)"
+                failed=true
+            fi
+        elif [ -e "$symlink_path" ]; then
+            print_warning "! $symlink_path exists but is not a symlink"
+        else
+            print_warning "! $symlink_path does not exist"
+        fi
+    done
+    
+    if [ "$failed" = true ]; then
+        print_error "Some dotfiles configurations are not properly set up"
+        return 1
+    else
+        print_success "All checked dotfiles configurations are properly linked"
+        return 0
+    fi
+}
+
 # Create component documentation
 create_component_docs() {
     print_header "Creating component documentation"
@@ -3906,6 +3929,14 @@ setup_github_info || exit 1
 
 # Step 2: Set up dotfiles directory and optionally chezmoi
 determine_dotfiles_directory || exit 1
+
+# Debug: Verify DOTFILES_DIR is set
+if [ -z "$DOTFILES_DIR" ]; then
+    print_error "DOTFILES_DIR variable is empty after determine_dotfiles_directory!"
+    exit 1
+fi
+print_step "Debug: DOTFILES_DIR is set to: $DOTFILES_DIR"
+
 ask_chezmoi || exit 1
 if [ "$USE_CHEZMOI" = true ]; then
     setup_chezmoi || exit 1
@@ -3945,6 +3976,9 @@ create_update_script || exit 1
 
 # Step 7: Final setup
 setup_dotfiles_repo || exit 1
+
+# Step 8: Verify everything is properly set up
+verify_dotfiles_setup || print_warning "Some dotfiles may not be properly configured"
 
 # Final setup and display completion message
 display_completion_message

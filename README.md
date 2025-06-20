@@ -35,7 +35,7 @@ A comprehensive development environment setup script for WSL Arch Linux that get
 
 ### WSL Integration & Modern Tooling
 - **Cursor IDE Support** - Seamless integration with Windows installation
-- **Ghostty Terminal** - Linux-native terminal with clean configuration
+- **Ghostty Terminal** - Modern, fast terminal installed via pacman
 - **GitHub Integration** - Authentication and repository management
 - **Cross-Platform Utilities** - Windows Explorer integration, clipboard sync
 - **Performance Optimizations** - WSL-specific tweaks and enhancements
@@ -162,7 +162,7 @@ Both provide the same powerful features - only the file organization differs. Yo
 - **WSL Utilities**: Windows path integration, clipboard sync
 - **Cursor/VS Code**: Automatic detection and wrapper scripts
 - **GitHub CLI**: Repository management and authentication
-- **Music System**: MPD daemon with Windows music folder access via rmpc client
+- **Music System**: MPD + rmpc installed via pacman with Windows music folder access
 - **Cross-Platform**: Seamless Windows-WSL workflow integration
 
 ## Directory Structure
