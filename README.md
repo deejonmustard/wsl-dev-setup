@@ -2,21 +2,38 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A simple script to set up a beginner-friendly development environment for WSL Arch Linux with dotfile management.
+A comprehensive development environment setup script for WSL Arch Linux with unified cross-platform dotfile management, modern CLI tools, and beautiful theming.
 
 ## Features
 
-- Neovim with Kickstart configuration (latest version from Arch repos)
-- Zsh with Oh My Zsh and plugins
-- Tmux for terminal multiplexer
-- Chezmoi for dotfile management across Windows and WSL
-- Node.js via NVM
-- Claude Code AI assistant (optional - requires user confirmation)
-- Core development tools and utilities
-- **Seamless GitHub integration** via GitHub CLI
-- **Organized directory structure** with configuration in ~/dev and dotfiles in ~/dotfiles
-- **Fastfetch** for system information display (modern neofetch alternative)
-- **Interactive and non-interactive modes** for flexible installation control
+### Core Development Environment
+- **Neovim** with Kickstart configuration and optional Rose Pine theme
+- **Zsh** with Oh My Zsh, autosuggestions, and syntax highlighting
+- **Tmux** for terminal multiplexing with vim-like navigation
+- **Chezmoi** for intelligent dotfile management across Windows and WSL
+- **Node.js** via NVM for flexible version management
+- **Claude Code** AI assistant (optional - requires Anthropic account)
+- **GitHub CLI** for seamless repository management
+
+### Modern CLI Tools
+- **exa** - Modern replacement for ls with icons
+- **bat** - Cat clone with syntax highlighting
+- **fd** - User-friendly find alternative
+- **ripgrep** - Lightning-fast grep replacement
+- **fzf** - Fuzzy finder for files and commands
+- **delta** - Beautiful git diff viewer
+- **zoxide** - Smarter cd command
+- **lazygit** - Terminal UI for git
+- **btop** - Modern system monitor
+- **starship** - Cross-shell prompt with Rose Pine theme
+
+### Enhanced Features
+- **Theme Selection** - Choose between Rose Pine, Catppuccin, Tokyo Night, Nord, or Dracula
+- **Nerd Fonts** - JetBrains Mono with icon support
+- **Terminal Configs** - Pre-configured WezTerm and Alacritty with transparency
+- **WSL Optimizations** - Performance tweaks and clipboard integration
+- **Cursor IDE Support** - Seamless integration with Windows installation
+- **Cross-Platform Dotfiles** - Edit from Windows or WSL with automatic syncing
 
 ## Quick Install
 
@@ -36,7 +53,7 @@ wsl.exe -l -v
 wsl.exe -d archlinux
 ```
 
-From a fresh Arch Linux WSL installation (you'll start as root, create a new user, do `wsl --terminate archlinux` , open Arch Linux again, and run the script a second time):
+From a fresh Arch Linux WSL installation:
 
 ```bash
 # Download the setup script
@@ -48,204 +65,188 @@ chmod +x setup.sh
 ```
 
 Optional: Run in interactive mode (prompts for each package)
-`./setup.sh --interactive`
-
+```bash
+./setup.sh --interactive
+```
 
 The script will:
 1. Initialize the pacman keyring if needed
 2. Install sudo and base packages
 3. Offer to create a new user (recommended)
-4. Set up the complete development environment
+4. Set up the complete development environment with your theme choice
 
 If you create a new user, you'll need to:
 1. Restart WSL: `wsl.exe --terminate archlinux` (in PowerShell)
 2. Launch Arch Linux again: `wsl.exe -d archlinux`
 3. Run the setup script again as your new user
 
+## Intelligent Dotfile Management
+
+### Automatic Windows Dotfiles Detection
+The setup script intelligently detects existing Windows dotfiles at `C:\Users\username\dotfiles`. If found, it:
+- Uses your existing dotfiles directory without creating duplicates
+- Preserves Windows symlinks and configurations
+- Enables seamless cross-platform editing
+- Maintains a single source of truth for all dotfiles
+
+### Two Approaches Available:
+
+1. **Unified Windows + WSL (Recommended)**:
+   - Dotfiles stored in Windows-accessible location
+   - Edit from both Windows and WSL seamlessly
+   - Single git repository for all dotfiles
+   - Chezmoi templates handle OS differences automatically
+
+2. **WSL-Only (Traditional)**:
+   - Dotfiles stored in WSL home directory
+   - Separate from Windows dotfiles
+   - Traditional Linux approach
+
 ## What's Included
 
-- **Core Tools**: git, ripgrep, fd, fzf, tmux, zsh, and more
-- **Neovim**: Latest version from Arch repositories with Kickstart configuration
-- **Zsh**: Enhanced shell with Oh My Zsh and plugins
-- **Chezmoi**: Dotfile manager to sync configs between WSL and Windows
-- **NVM**: Node Version Manager for JavaScript development
-- **Claude Code**: AI assistant for coding (optional - prompts for confirmation during setup)
-- **WSL Utilities**: Helper scripts for Windows integration
-- **GitHub CLI**: Seamless dotfiles repository management
-- **Fastfetch**: Modern system information tool (replaces the discontinued neofetch)
+### Development Tools
+- **Core Tools**: git, ripgrep, fd, fzf, tmux, zsh, jq, bat, htop
+- **Modern CLI**: exa, zoxide, delta, lazygit, ranger, ncdu, duf
+- **System Monitoring**: htop, btop, iotop, nethogs
+- **Build Tools**: base-devel, cmake, python, rust (via rustup)
+
+### Terminal & Shell
+- **Neovim**: Latest version with Kickstart.nvim configuration
+- **Zsh**: Enhanced with Oh My Zsh and plugins
+- **Starship**: Customizable prompt with theme support
+- **Tmux**: Multiplexer with intuitive keybindings
+
+### Integration & Utilities
+- **WSL Utilities**: Windows path integration, clipboard sync
+- **Cursor/VS Code**: Automatic detection and wrapper scripts
+- **GitHub CLI**: Repository management and authentication
+- **Fastfetch**: System information display
 
 ## Directory Structure
 
 The setup creates an organized structure:
-- `~/dev`: Main development environment directory
-  - `/docs`: Documentation for installed tools
-  - `/bin`: Custom scripts and utilities
-  - `/projects`: Recommended location for your projects
-  - `/configs`: Various configuration backups
-- `~/dotfiles`: Chezmoi source directory for all your dotfiles
+```
+~/
+├── dev/                    # Main development environment
+│   ├── docs/              # Documentation and guides
+│   ├── bin/               # Custom scripts
+│   ├── projects/          # Your projects
+│   └── update.sh          # Environment updater
+├── dotfiles/              # Chezmoi source directory
+└── bin/                   # User executables
+    ├── cursor-wrapper.sh  # Cursor IDE integration
+    ├── winopen           # Windows Explorer opener
+    └── clip-copy         # Clipboard utilities
+```
+
+## Theme Customization
+
+The setup includes a theme selector with popular options:
+- **Rose Pine** (User's preference) - Soho vibes with transparency
+- **Catppuccin** - Soothing pastel theme
+- **Tokyo Night** - Clean and modern
+- **Nord** - Arctic, north-bluish theme
+- **Dracula** - Dark theme with vibrant colors
+
+All themes are configured with 0.9 transparency for a modern look.
+
+## Cross-Platform Workflows
+
+### Unified Dotfiles
+With the unified approach, your dotfiles live in `C:\Users\username\dotfiles`:
+
+1. **Single Source of Truth**: One git repository for all platforms
+2. **Edit Anywhere**: Use your favorite Windows editor or WSL tools
+3. **Automatic Templating**: Chezmoi handles OS-specific differences
+4. **Instant Sync**: Changes are immediately available across platforms
+
+### Example Workflow
+```bash
+# Edit in Windows (e.g., with Cursor/VS Code)
+# Open C:\Users\username\dotfiles in your editor
+
+# Apply changes in WSL
+chezmoi apply
+
+# Or edit in WSL
+chezmoi edit ~/.zshrc
+chezmoi apply
+```
 
 ## GitHub Integration
 
-The setup script now includes comprehensive GitHub integration using GitHub CLI:
+The setup includes comprehensive GitHub integration:
+- **Automatic Authentication**: Web-based or token auth
+- **Repository Creation**: One-command private/public repo setup
+- **Seamless Syncing**: Push/pull dotfiles with ease
 
-1. **Automatic CLI Installation**: Installs GitHub CLI from Arch repos
-2. **Interactive Authentication**: Simple web-based or token auth flow
-3. **Automatic Username Detection**: No need to manually enter your username
-4. **One-Command Repository Creation**: Creates private or public repos with a single command
-5. **Seamless Remote Setup**: Automatically configures your git remote
+## Cursor IDE Support
 
-This makes it incredibly easy to get your dotfiles stored on GitHub with minimal effort.
+Full integration with Cursor IDE for Windows:
+- **Automatic Detection**: Scans common installation paths
+- **PATH Integration**: Adds Cursor to PATH if found
+- **WSL Wrapper**: Handles path conversion seamlessly
+- **Command Aliases**: Both `cursor .` and `code .` work
 
-## Neovim Setup
+## WSL-Specific Optimizations
 
-The setup script uses [kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) as the base Neovim configuration. During installation you'll be asked if you have a fork of kickstart.nvim:
+Performance and integration enhancements:
+- **Systemd Support**: Modern init system for WSL2
+- **File System**: Cross-filesystem Git support
+- **Clipboard**: Bidirectional clipboard sync
+- **Path Handling**: Intelligent Windows path conversion
+- **Performance**: Optimized Node.js and file watching
 
-- If you do: provide your GitHub username to clone your fork
-- If not: the script will use the official repository
+## Maintenance
 
-It's recommended to fork kickstart.nvim to your own GitHub account for easier customization:
-1. Visit https://github.com/nvim-lua/kickstart.nvim and click "Fork"
-2. Clone your fork during setup by answering "yes" when prompted
-
-## Dotfile Management with Chezmoi
-
-Chezmoi is installed to help you manage your configuration files (dotfiles) across both Windows and WSL. This ensures your development environment remains consistent.
-
-### Organized Directory Structure
-
-This setup uses a custom source directory for Chezmoi at `~/dotfiles` instead of the default location. This keeps your dotfiles separate from your development environment.
-
-### Basic Usage
-
-The setup configures chezmoi to use `~/dotfiles` as the source directory via a config file, so you don't need to specify it each time:
-
+Keep your environment current:
 ```bash
-# Add a configuration file to be managed by chezmoi
-chezmoi add ~/.zshrc
-
-# Edit a configuration file
-chezmoi edit ~/.zshrc
-
-# Apply changes to your dotfiles
-chezmoi apply
-
-# Push changes to your dotfiles repository
-cd ~/dotfiles && git push
-```
-
-### Managing Machine-Specific Differences
-
-Chezmoi allows you to handle differences between your Windows environment and WSL setup using templates and conditional logic.
-
-For a full guide, see the documentation in `~/dev/docs/chezmoi-guide.md` after installation.
-
-### Integrating Windows Dotfiles with WSL
-
-You can use the same Chezmoi repository to manage both your Windows dotfiles and your WSL dotfiles. Here's how to set it up:
-
-#### 1. Install Chezmoi on Windows
-
-In PowerShell:
-
-```powershell
-# Using winget
-winget install twpayne.chezmoi
-
-# OR using Scoop
-scoop install chezmoi
-
-# OR using Chocolatey
-choco install chezmoi
-```
-
-#### 2. Initialize with the Same Repository
-
-```powershell
-# Initialize Chezmoi with your GitHub repository
-chezmoi init https://github.com/YOUR-USERNAME/dotfiles.git
-
-# Apply configuration files
-chezmoi apply
-```
-
-#### 3. Add Windows-Specific Files
-
-```powershell
-# Add PowerShell profile
-chezmoi add $PROFILE
-
-# Add other Windows config files
-chezmoi add ~\AppData\Roaming\Windows Terminal\settings.json
-chezmoi add ~\.gitconfig
-```
-
-#### 4. Handle OS-Specific Differences
-
-Create template files that use Chezmoi's built-in templating to handle OS differences:
-
-```
-{{- if eq .chezmoi.os "windows" }}
-# Windows-specific settings
-{{- else }}
-# Linux/WSL-specific settings
-{{- end }}
-```
-
-#### 5. Synchronize Between Windows and WSL
-
-Since both systems point to the same GitHub repository, you can keep them in sync:
-
-```powershell
-# In Windows PowerShell
-chezmoi update
-```
-
-```bash
-# In WSL
-chezmoi update
-```
-
-This way, any changes you make to your configuration in either environment will be available in both!
-
-## Updates
-
-After installation, you can update your environment by running:
-
-```bash
-# Update system and tools
+# Update everything
 ~/dev/update.sh
 
-# Update dotfiles separately
+# Update dotfiles only
 chezmoi update
+
+# Update specific tools
+cargo install-update -a  # Rust tools
+nvm install --lts       # Node.js
 ```
 
-## Arch Linux Specific Notes
+## Claude Code Setup
 
-This setup is optimized for Arch Linux on WSL and uses:
-- `pacman` for package management
-- Latest Neovim from official Arch repositories
-- Arch-specific package names (e.g., `fd` instead of `fd-find`)
-- Base development tools from `base-devel` package group
-- Automatic bootstrap process for fresh installations
+The script includes optional Claude Code installation:
+1. Requires an Anthropic account with billing
+2. Minimum $5 credits needed
+3. Install with: `npm install -g claude-ai-cli`
+4. Authenticate with: `claude login`
 
 ## Script Options
 
 ### Non-Interactive Mode (Default)
-By default, the script runs in non-interactive mode where all package installations are automatically approved. You'll see `[Y/n]` prompts from pacman, but they will be auto-answered with 'yes'.
+Auto-confirms all prompts for unattended installation:
+```bash
+./setup.sh
+```
 
 ### Interactive Mode
-If you prefer to manually approve each package installation:
+Manual control over each package installation:
 ```bash
 ./setup.sh --interactive
 ```
 
-This allows you to review and approve/reject each package installation individually.
+## Troubleshooting
 
-## Known Issues
+### Common Issues
+- **Existing Dotfiles**: Script automatically detects Windows dotfiles at `C:\Users\username\dotfiles`
+- **Terminal Width**: Pacman warnings about columns are cosmetic
+- **Node.js Not Found**: Run `source ~/.nvm/nvm.sh`
+- **Cursor Not Working**: Install from https://cursor.sh then run `~/bin/cursor-path.sh`
 
-- **Claude Code Installation**: The npm package `@anthropic-ai/claude-code` is optional and requires user confirmation during setup. It might not be available in the public npm registry or may require authentication. The installation has a 2-minute timeout to prevent hanging. You can always install it manually later with `npm install -g @anthropic-ai/claude-code`.
-- **Terminal Width Warnings**: You might see "insufficient columns available for table display" warnings from pacman. These are cosmetic and don't affect functionality.
-- **Auto-answered Prompts**: In non-interactive mode (default), you'll see `[Y/n]` prompts that are automatically answered. This is expected behavior.
+### Getting Help
+After installation, comprehensive documentation is available:
+- Workflow guide: `cat ~/dev/docs/workflow-guide.md`
+- Quick reference: `cat ~/dev/docs/quick-reference.md`
+- Chezmoi guide: `cat ~/dev/docs/chezmoi/getting-started.md`
 
 ## License
 
