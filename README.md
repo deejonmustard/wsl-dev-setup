@@ -5,14 +5,14 @@
 
 A comprehensive development environment setup script for WSL Arch Linux that gets you from **0→1** with modern tools while making the **1→100** customization path effortless.
 
-## Philosophy: 0→1, Then You Take Over
+## 0→1, Then You Take Over
 
 This script follows a **0→1 philosophy** - it provides you with a rock-solid foundation of modern development tools and infrastructure, then gets out of your way so you can customize from 1→100 however you want.
 
 **What we provide (0→1):**
 - Essential modern CLI tools and development environment
-- Cross-platform dotfile management infrastructure
-- Flexible configuration system
+- Flexible dotfile management options (with or without Chezmoi)
+- Cross-platform configuration system
 - Comprehensive documentation
 - Clean, unopinionated foundation
 
@@ -44,10 +44,10 @@ The result: You get a powerful, modern development environment in minutes, with 
 - **starship** - Cross-shell prompt
 - **fastfetch** - System information display
 
-### Intelligent Dotfile Management
+### Flexible Dotfile Management
 - **Optional Chezmoi** - Advanced dotfile management for power users
 - **Manual Management** - Simple directory-based approach for those who prefer control
-- **Cross-Platform Support** - Edit from Windows or WSL with automatic syncing
+- **Cross-Platform Support** - Works with existing Windows symlink setups
 - **Unified Approach** - Single source of truth for all your configurations
 
 ### WSL Integration & Modern Tooling
@@ -104,10 +104,10 @@ If you create a new user, you'll need to:
 
 ## Flexible Dotfile Management
 
-The setup intelligently adapts to your preferences:
+The setup intelligently adapts to your preferences and existing workflows:
 
 ### Automatic Detection
-- Detects existing Windows dotfiles at `C:\Users\username\dotfiles`
+- Detects existing Windows dotfiles at common locations
 - Preserves existing configurations and workflows
 - No duplication or conflicts with your current setup
 
@@ -118,19 +118,20 @@ The setup intelligently adapts to your preferences:
 - Git integration with automatic syncing
 - Powerful for managing multiple machines
 - Handles complex cross-platform scenarios
+- **Optional**: You choose whether to use it
 
 **Option 2: Manual Management (Simple & Direct)**
 - Direct file editing in organized dotfiles directory
-- Simple symlink-based system
+- Simple symlink-based system compatibility
 - Full control over every configuration
 - Traditional Unix approach with modern tooling
 
 ### Cross-Platform Workflows
 
-**Unified Windows + WSL (Recommended):**
-- Dotfiles stored in Windows-accessible location
+**Unified Windows + WSL:**
+- Works with existing Windows symlink setups
 - Edit from both Windows and WSL seamlessly  
-- Single git repository for all dotfiles
+- Single git repository for all dotfiles (if using Chezmoi)
 - Automatic OS difference handling
 
 **WSL-Only (Traditional):**
@@ -222,39 +223,12 @@ Comprehensive documentation for your customization journey:
 - Cross-platform development tips
 - Troubleshooting and maintenance guides
 
-## Cross-Platform Workflows
-
-### Unified Dotfiles Example
-```bash
-# Edit in Windows (e.g., with Cursor/VS Code)
-# Open C:\Users\username\dotfiles in your editor
-
-# Apply changes in WSL (if using Chezmoi)
-chezmoi apply
-
-# Or with manual management - changes are immediate
-# since files are symlinked
-```
-
-### Development Workflow
-```bash
-# Start your day
-fastfetch                 # Check system status
-tmux new -s work         # Create development session
-cursor ~/dev/projects    # Open your IDE
-
-# Manage configurations
-nvim ~/.zshrc            # Edit configs directly
-# or
-chezmoi edit ~/.zshrc    # Edit via Chezmoi (if enabled)
-```
-
 ## GitHub Integration
 
 Seamless GitHub integration for your dotfiles:
 - **Automatic Authentication**: Web-based or token auth
 - **Repository Management**: Easy private/public repo creation
-- **Dotfile Syncing**: Push/pull configurations across machines
+- **Dotfile Syncing**: Push/pull configurations across machines (if using Chezmoi)
 - **GitHub CLI**: Full command-line repository management
 
 ## WSL-Specific Optimizations
