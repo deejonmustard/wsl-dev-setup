@@ -532,62 +532,105 @@ install_neovim() {
 # Setup nvim with Kickstart configuration 
 setup_nvim_config() {
     print_header "Setting up Neovim configuration with Chezmoi"
-    print_step "Setting up Kickstart Neovim configuration..."
+    
+    # Ask user which version of kickstart they prefer
+    echo -e "\n${CYAN}Choose your Neovim configuration style:${NC}"
+    echo -e "${BLUE}1) Regular Kickstart (single init.lua file)${NC}"
+    echo -e "   - Everything in one file"
+    echo -e "   - Easier for beginners"
+    echo -e "   - Original from nvim-lua team"
+    echo -e ""
+    echo -e "${BLUE}2) Modular Kickstart (multi-file structure)${NC}"
+    echo -e "   - Better organization"
+    echo -e "   - Easier to customize"
+    echo -e "   - Same features, better structure"
+    echo -e ""
+    
+    read -p "Enter your choice (1 or 2) [1]: " kickstart_choice
+    kickstart_choice=${kickstart_choice:-1}
+    
+    local repo_type=""
+    local default_repo=""
+    
+    case $kickstart_choice in
+        2)
+            repo_type="kickstart-modular.nvim"
+            default_repo="https://github.com/dam9000/kickstart-modular.nvim.git"
+            print_step "Using Modular Kickstart configuration..."
+            ;;
+        *)
+            repo_type="kickstart.nvim"
+            default_repo="https://github.com/nvim-lua/kickstart.nvim.git"
+            print_step "Using Regular Kickstart configuration..."
+            ;;
+    esac
 
     # Create a temporary directory for cloning kickstart
     TEMP_NVIM_DIR=$(mktemp -d)
     
-    # Check if we have GitHub username and if user has their own fork
-    if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
-        echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
-        read -r has_fork
+    # Check if user has an existing fork/repo
+    echo -e "\n${BLUE}Do you have an existing $repo_type repository? (y/n) [n]${NC}"
+    read -r has_existing_repo
+    has_existing_repo=${has_existing_repo:-n}
+    
+    if [[ "$has_existing_repo" =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Is it:${NC}"
+        echo -e "1) Your own fork on GitHub"
+        echo -e "2) A local clone you want to use"
+        read -r repo_source
         
-        if [[ "$has_fork" =~ ^[Yy]$ ]]; then
-            # Use the stored GitHub username
-            print_step "Cloning from your fork at https://github.com/$GITHUB_USERNAME/kickstart.nvim.git"
-            git clone --depth=1 "https://github.com/$GITHUB_USERNAME/kickstart.nvim.git" "$TEMP_NVIM_DIR"
-            
-            # Modify .gitignore to track lazy-lock.json as recommended
-            if [ -f "$TEMP_NVIM_DIR/.gitignore" ]; then
-                print_step "Modifying .gitignore to track lazy-lock.json..."
-                sed -i '/lazy-lock.json/d' "$TEMP_NVIM_DIR/.gitignore"
-                print_success "Modified .gitignore to track lazy-lock.json"
-            fi
-        else
-            # Clone default kickstart.nvim
-            print_step "Installing Kickstart Neovim from official repository..."
-            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
+        case $repo_source in
+            2)
+                # Local clone
+                echo -e "${BLUE}Enter the full path to your local $repo_type:${NC}"
+                read -r local_path
+                
+                if [ -d "$local_path" ]; then
+                    print_step "Using existing local repository..."
+                    cp -r "$local_path" "$TEMP_NVIM_DIR"
+                else
+                    print_warning "Path not found, falling back to default repository"
+                    git clone --depth=1 "$default_repo" "$TEMP_NVIM_DIR"
+                fi
+                ;;
+            *)
+                # GitHub fork
+                if $USE_GITHUB && [ -n "$GITHUB_USERNAME" ]; then
+                    # Use stored GitHub username
+                    print_step "Cloning from your fork at https://github.com/$GITHUB_USERNAME/$repo_type"
+                    git clone --depth=1 "https://github.com/$GITHUB_USERNAME/$repo_type" "$TEMP_NVIM_DIR"
+                else
+                    # Ask for GitHub username
+                    echo -e "${BLUE}Enter your GitHub username:${NC}"
+                    read -r github_username
+                    
+                    if [ -z "$github_username" ]; then
+                        print_warning "No username provided, falling back to default repository"
+                        git clone --depth=1 "$default_repo" "$TEMP_NVIM_DIR"
+                    else
+                        print_step "Cloning from your fork at https://github.com/$github_username/$repo_type"
+                        git clone --depth=1 "https://github.com/$github_username/$repo_type" "$TEMP_NVIM_DIR"
+                    fi
+                fi
+                ;;
+        esac
+        
+        # Check if clone was successful
+        if [ $? -ne 0 ]; then
+            print_warning "Failed to clone from fork, trying default repository..."
+            git clone --depth=1 "$default_repo" "$TEMP_NVIM_DIR"
+        fi
+        
+        # Modify .gitignore to track lazy-lock.json if it exists
+        if [ -f "$TEMP_NVIM_DIR/.gitignore" ] && grep -q "lazy-lock.json" "$TEMP_NVIM_DIR/.gitignore"; then
+            print_step "Modifying .gitignore to track lazy-lock.json..."
+            sed -i '/lazy-lock.json/d' "$TEMP_NVIM_DIR/.gitignore"
+            print_success "Modified .gitignore to track lazy-lock.json"
         fi
     else
-        # Ask if user has their own fork (original behavior if no GitHub username provided)
-        echo -e "\n${BLUE}Do you have your own fork of kickstart.nvim on GitHub? (y/n)${NC}"
-        read -r has_fork
-        
-        if [[ "$has_fork" =~ ^[Yy]$ ]]; then
-            # Ask for GitHub username
-            echo -e "${BLUE}Please enter your GitHub username:${NC}"
-            read -r github_username
-            
-            if [ -z "$github_username" ]; then
-                print_warning "No username provided, falling back to default repository"
-                git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
-            else
-                # Clone from user's fork
-                print_step "Cloning from your fork at https://github.com/$github_username/kickstart.nvim.git"
-                git clone --depth=1 "https://github.com/$github_username/kickstart.nvim.git" "$TEMP_NVIM_DIR"
-                
-                # Modify .gitignore to track lazy-lock.json as recommended
-                if [ -f "$TEMP_NVIM_DIR/.gitignore" ]; then
-                    print_step "Modifying .gitignore to track lazy-lock.json..."
-                    sed -i '/lazy-lock.json/d' "$TEMP_NVIM_DIR/.gitignore"
-                    print_success "Modified .gitignore to track lazy-lock.json"
-                fi
-            fi
-        else
-            # Clone default kickstart.nvim
-            print_step "Installing Kickstart Neovim from official repository..."
-            git clone --depth=1 https://github.com/nvim-lua/kickstart.nvim.git "$TEMP_NVIM_DIR"
-        fi
+        # No existing repo, clone default
+        print_step "Installing $repo_type from official repository..."
+        git clone --depth=1 "$default_repo" "$TEMP_NVIM_DIR"
     fi
     
     if [ $? -ne 0 ]; then
@@ -658,16 +701,36 @@ return {
 }
 EOF
         
-        # Check if init.lua has custom plugin loading
-        if ! grep -q "custom.plugins" "$HOME/.config/nvim/init.lua"; then
-            print_step "Adding custom plugin loading to init.lua..."
-            # Find where to add the import (usually after lazy setup)
-            # This is a simplified approach - in reality we'd need to parse the file more carefully
-            echo "
--- CUSTOM: Load custom plugins
-require('lazy').setup({
-  { import = 'custom.plugins' },
-})" >> "$HOME/.config/nvim/init.lua"
+        # Check which version of kickstart we're using
+        if [ -d "$HOME/.config/nvim/lua/kickstart" ]; then
+            # Modular version - has a kickstart directory
+            print_step "Detected Modular Kickstart configuration"
+            
+            # For modular kickstart, custom plugins go in lua/kickstart/plugins/
+            ensure_dir "$HOME/.config/nvim/lua/kickstart/plugins/custom"
+            
+            # Move the theme to the appropriate location
+            mv "$HOME/.config/nvim/lua/custom/plugins/theme.lua" \
+               "$HOME/.config/nvim/lua/kickstart/plugins/custom/theme.lua" 2>/dev/null || true
+            
+            # Move UI enhancements
+            mv "$HOME/.config/nvim/lua/custom/plugins/ui.lua" \
+               "$HOME/.config/nvim/lua/kickstart/plugins/custom/ui.lua" 2>/dev/null || true
+            
+            # Update paths for chezmoi
+            safe_add_to_chezmoi "$HOME/.config/nvim/lua/kickstart/plugins/custom/theme.lua" "Neovim Rose Pine theme" || true
+            safe_add_to_chezmoi "$HOME/.config/nvim/lua/kickstart/plugins/custom/ui.lua" "Neovim UI enhancements" || true
+            
+            print_step "Custom plugins added to modular Kickstart structure"
+        else
+            # Regular version - single init.lua file
+            print_step "Detected Regular Kickstart configuration"
+            
+            # Check if init.lua has custom plugin loading
+            if ! grep -q "custom.plugins" "$HOME/.config/nvim/init.lua"; then
+                print_step "Note: For regular Kickstart, add custom plugins directly to init.lua"
+                print_step "Custom plugin files created in lua/custom/plugins/ for reference"
+            fi
         fi
         
         # Add UI enhancements
@@ -2632,10 +2695,14 @@ This WSL development environment provides a comprehensive, cross-platform develo
 - **Cross-Platform Support**: Single repository manages both Windows and WSL dotfiles
 
 #### 3. Text Editor (Neovim + Kickstart)
+- **Configuration Options**: 
+  - Regular Kickstart: Single-file configuration (easier for beginners)
+  - Modular Kickstart: Multi-file structure (better for extensive customization)
 - **Base Configuration**: Kickstart.nvim for modern Neovim setup
 - **Package Manager**: Lazy.nvim for plugin management
 - **Language Support**: Built-in LSP, treesitter, and completion
 - **Customization**: User fork support for personalized configurations
+- **Theme Support**: Optional Rose Pine theme with transparency
 
 #### 4. Terminal Multiplexer (Tmux)
 - **Prefix Key**: Ctrl+a (more accessible than default Ctrl+b)
@@ -2975,6 +3042,13 @@ EOL
 | Node.js | JavaScript runtime | Managed with NVM: `nvm install <version>` |
 | Claude Code | AI coding assistant | `claude` |
 
+### Neovim Configuration
+Your Neovim is configured with either:
+- **Regular Kickstart**: Single `init.lua` file (check `~/.config/nvim/init.lua`)
+- **Modular Kickstart**: Multi-file structure (check `~/.config/nvim/lua/kickstart/`)
+
+To update plugins: Open Neovim and run `:Lazy`
+
 ## Essential Aliases
 
 ```bash
@@ -3245,7 +3319,12 @@ display_completion_message() {
     
     # Show tools installed
     echo -e "\n${CYAN}Installed Tools:${NC}"
-    echo -e "• Neovim (editor): ${GREEN}nvim${NC}"
+    # Detect which Kickstart version was installed
+    if [ -d "$HOME/.config/nvim/lua/kickstart" ]; then
+        echo -e "• Neovim (editor): ${GREEN}nvim${NC} with ${BLUE}Modular Kickstart${NC}"
+    else
+        echo -e "• Neovim (editor): ${GREEN}nvim${NC} with ${BLUE}Regular Kickstart${NC}"
+    fi
     echo -e "• Tmux (terminal multiplexer): ${GREEN}tmux${NC}"
     echo -e "• Zsh (shell): ${GREEN}zsh${NC}"
     echo -e "• Chezmoi (dotfile manager): ${GREEN}chezmoi${NC}"

@@ -1,13 +1,14 @@
 # WSL Development Environment Setup
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/Version-v0.0.1-blue.svg)](https://github.com/deejonmustard/wsl-dev-setup/releases/tag/v0.0.1)
 
 A comprehensive development environment setup script for WSL Arch Linux with unified cross-platform dotfile management, modern CLI tools, and beautiful theming.
 
 ## Features
 
 ### Core Development Environment
-- **Neovim** with Kickstart configuration and optional Rose Pine theme
+- **Neovim** with choice of Regular or Modular Kickstart configuration and optional theming
 - **Zsh** with Oh My Zsh, autosuggestions, and syntax highlighting
 - **Tmux** for terminal multiplexing with vim-like navigation
 - **Chezmoi** for intelligent dotfile management across Windows and WSL
@@ -25,7 +26,7 @@ A comprehensive development environment setup script for WSL Arch Linux with uni
 - **zoxide** - Smarter cd command
 - **lazygit** - Terminal UI for git
 - **btop** - Modern system monitor
-- **starship** - Cross-shell prompt with Rose Pine theme
+- **starship** - Cross-shell prompt with custom theming
 
 ### Enhanced Features
 - **Theme Selection** - Choose between Rose Pine, Catppuccin, Tokyo Night, Nord, or Dracula
@@ -102,6 +103,27 @@ The setup script intelligently detects existing Windows dotfiles at `C:\Users\us
    - Separate from Windows dotfiles
    - Traditional Linux approach
 
+## Neovim Configuration Options
+
+The setup offers two Kickstart.nvim variants:
+
+### Regular Kickstart (Default)
+- **Single File**: Everything in one `init.lua`
+- **Best For**: Beginners, simple setups
+- **Pros**: Easy to understand, self-contained
+- **Source**: Official nvim-lua/kickstart.nvim
+
+### Modular Kickstart
+- **Multi-File**: Configuration split into logical modules
+- **Best For**: Advanced users, extensive customization
+- **Pros**: Better organization, easier to extend
+- **Source**: dam9000/kickstart-modular.nvim fork
+
+Both versions include the same features - the only difference is file organization. During setup, you can:
+- Use your existing GitHub fork of either version
+- Use a local clone you already have
+- Clone from the official repositories
+
 ## What's Included
 
 ### Development Tools
@@ -142,7 +164,7 @@ The setup creates an organized structure:
 ## Theme Customization
 
 The setup includes a theme selector with popular options:
-- **Rose Pine** (User's preference) - Soho vibes with transparency
+- **Rose Pine** - Soho vibes with transparency
 - **Catppuccin** - Soothing pastel theme
 - **Tokyo Night** - Clean and modern
 - **Nord** - Arctic, north-bluish theme
