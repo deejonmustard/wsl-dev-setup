@@ -5,6 +5,19 @@
 
 A comprehensive development environment setup script for WSL Arch Linux with unified cross-platform dotfile management, modern CLI tools, and beautiful theming.
 
+## ⚠️ Known Issues
+
+### Rust Installation May Hang
+The script may hang during Rust installation via rustup in WSL environments. If this happens:
+1. Press `Ctrl+C` to cancel the script
+2. Run the provided fix script: `chmod +x fix-hanging-rust.sh && ./fix-hanging-rust.sh`
+3. Follow the instructions to continue setup
+
+The latest version of the script has been updated to handle this more gracefully by:
+- Installing Rust via pacman first (more reliable in WSL)
+- Adding a timeout to rustup installation
+- Making Rust-based tools optional
+
 ## Features
 
 ### Core Development Environment

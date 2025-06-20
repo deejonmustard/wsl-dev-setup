@@ -23,6 +23,8 @@ GITHUB_TOKEN=""
 USE_GITHUB=false
 GITHUB_REPO_CREATED=false
 INTERACTIVE_MODE=false
+GIT_NAME=""
+GIT_EMAIL=""
 
 # --- Utility functions ---
 
@@ -91,7 +93,7 @@ select_theme() {
     print_header "Select Your Preferred Theme"
     
     echo -e "${BLUE}Choose a theme:${NC}"
-    echo "1) Rose Pine (User's preference)"
+    echo "1) Rose Pine"
     echo "2) Catppuccin"
     echo "3) Tokyo Night"
     echo "4) Nord"
@@ -378,23 +380,53 @@ install_core_deps() {
 install_modern_cli_tools() {
     print_header "Installing Modern CLI Tools"
     
-    # Install Rust if not present
+    # Try to install Rust via pacman first (more reliable in WSL)
     if ! command_exists cargo; then
-        print_step "Installing Rust..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env"
+        print_step "Installing Rust via pacman..."
+        run_elevated pacman -S --noconfirm --needed rust 2>&1 | grep -v "warning: insufficient columns"
+        
+        # If pacman installation failed, try rustup as fallback
+        if ! command_exists cargo; then
+            print_warning "Pacman installation failed, trying rustup..."
+            print_step "Downloading and installing Rust via rustup..."
+            
+            # Download rustup script first to check if download works
+            if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh; then
+                # Run with timeout to prevent hanging
+                timeout 300 sh /tmp/rustup.sh -y --no-modify-path
+                if [ $? -eq 0 ]; then
+                    source "$HOME/.cargo/env"
+                    rm -f /tmp/rustup.sh
+                else
+                    print_warning "Rustup installation failed or timed out"
+                    rm -f /tmp/rustup.sh
+                fi
+            else
+                print_warning "Failed to download rustup installer"
+            fi
+        fi
     fi
     
-    # Install modern replacements
-    print_step "Installing modern CLI tools..."
-    cargo install exa bat fd-find ripgrep bottom zoxide starship
+    # Install modern CLI tools - some from pacman, some from cargo if available
+    print_step "Installing modern CLI tools from package manager..."
     
-    # Install additional tools from pacman
+    # Many of these tools are available in pacman and more reliable to install
     run_elevated pacman -S --noconfirm --needed \
+        exa bat fd ripgrep starship \
         lazygit ranger ncdu duf gdu \
         2>&1 | grep -v "warning: insufficient columns"
     
-    print_success "Modern CLI tools installed"
+    # Only try cargo installs if cargo is available and for tools not in pacman
+    if command_exists cargo; then
+        print_step "Installing additional tools via Cargo..."
+        # Only install tools that aren't available in pacman
+        cargo install bottom zoxide || print_warning "Some Cargo installations failed, continuing..."
+    else
+        print_warning "Cargo not available, skipping Rust-based tool installations"
+        print_warning "You can install Rust later with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    fi
+    
+    print_success "Modern CLI tools installation completed"
     return 0
 }
 
@@ -881,6 +913,14 @@ setup_chezmoi() {
     else
         print_step "Chezmoi is already installed"
         chezmoi --version
+    fi
+    
+    # Get Git user configuration if not already set
+    if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
+        if command_exists git; then
+            GIT_NAME=$(git config --global user.name 2>/dev/null || echo "")
+            GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
+        fi
     fi
     
     # Detect Windows username
