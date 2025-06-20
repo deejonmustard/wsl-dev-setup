@@ -268,6 +268,36 @@ run_elevated() {
     fi
 }
 
+# Robust package installation with retry logic
+install_packages_robust() {
+    local packages="$1"
+    local description="${2:-packages}"
+    local max_attempts=2
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        print_step "Installing $description (attempt $attempt of $max_attempts)..."
+        
+        if run_elevated pacman -S --noconfirm --needed $packages 2>&1 | grep -v "warning: insufficient columns"; then
+            print_success "$description installed successfully"
+            return 0
+        else
+            if [ $attempt -lt $max_attempts ]; then
+                print_warning "Installation failed, switching to more reliable mirrors..."
+                use_emergency_mirrors
+                sleep 1
+            else
+                print_error "Failed to install $description after $max_attempts attempts"
+                return 1
+            fi
+        fi
+        
+        attempt=$((attempt + 1))
+    done
+    
+    return 1
+}
+
 
 
 # Function to safely add a file to chezmoi
@@ -364,7 +394,8 @@ optimize_mirrors() {
         print_step "Installing reflector for mirror optimization..."
         run_elevated pacman -S --noconfirm --needed reflector 2>&1 | grep -v "warning: insufficient columns"
         if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            print_warning "Failed to install reflector, continuing with default mirrors"
+            print_warning "Failed to install reflector, using curated fast mirrors"
+            use_fallback_mirrors
             return 0
         fi
     fi
@@ -373,26 +404,25 @@ optimize_mirrors() {
     print_step "Backing up current mirrorlist..."
     run_elevated cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
     
-    # Generate optimized mirrorlist
+    # Generate optimized mirrorlist with shorter timeout to avoid hanging
     print_step "Generating optimized mirrorlist (this may take a moment)..."
     
-    # Use a comprehensive reflector command that works well globally
-    # Based on ArcoLinux recommendations with timeout protection
+    # Use a more conservative reflector command with shorter timeout
     if [ "$EUID" -eq 0 ]; then
-        timeout 120 reflector \
-            --age 6 \
-            --latest 20 \
-            --fastest 20 \
-            --threads 20 \
+        timeout 60 reflector \
+            --age 12 \
+            --latest 15 \
+            --fastest 10 \
+            --threads 10 \
             --sort rate \
             --protocol https \
             --save /etc/pacman.d/mirrorlist
     else
-        timeout 120 sudo reflector \
-            --age 6 \
-            --latest 20 \
-            --fastest 20 \
-            --threads 20 \
+        timeout 60 sudo reflector \
+            --age 12 \
+            --latest 15 \
+            --fastest 10 \
+            --threads 10 \
             --sort rate \
             --protocol https \
             --save /etc/pacman.d/mirrorlist
@@ -400,42 +430,122 @@ optimize_mirrors() {
     
     if [ $? -eq 0 ]; then
         print_success "Mirrors optimized successfully"
-    else
-        print_warning "Mirror optimization timed out or failed, using fallback approach"
         
-        # Fallback: Use a simple fast mirror list
-        print_step "Using fallback mirror configuration..."
+        # Test the new mirrors with a quick sync
+        print_step "Testing mirror performance..."
         if [ "$EUID" -eq 0 ]; then
-            tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
-# Fallback mirror list - globally fast mirrors
-Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
-Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
-Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
-Server = https://arch.mirror.constant.com/$repo/os/$arch
-Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
-EOF
+            timeout 30 pacman -Sy --noconfirm >/dev/null 2>&1
         else
-            sudo tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
-# Fallback mirror list - globally fast mirrors
-Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
-Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
-Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
-Server = https://arch.mirror.constant.com/$repo/os/$arch
-Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
-EOF
+            timeout 30 sudo pacman -Sy --noconfirm >/dev/null 2>&1
         fi
-        print_success "Fallback mirrors configured"
+        
+        if [ $? -ne 0 ]; then
+            print_warning "Optimized mirrors are slow, switching to curated fast mirrors"
+            use_fallback_mirrors
+        fi
+    else
+        print_warning "Mirror optimization failed, using curated fast mirrors"
+        use_fallback_mirrors
     fi
     
+    return 0
+}
+
+# Use curated list of fast, reliable mirrors
+use_fallback_mirrors() {
+    print_step "Using curated fast mirror list..."
+    
+    # List of globally fast and reliable mirrors based on current mirror status
+    if [ "$EUID" -eq 0 ]; then
+        tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+# Curated fast mirror list - updated for current performance
+# Based on mirror status and community feedback
+
+# United States - Consistently fast
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
+Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
+Server = https://repo.ialab.dsu.edu/archlinux/$repo/os/$arch
+
+# Europe - High performance
+Server = https://mirror.selfnet.de/archlinux/$repo/os/$arch
+Server = https://arch.mirror.constant.com/$repo/os/$arch
+Server = https://mirrors.dotsrc.org/archlinux/$repo/os/$arch
+
+# Global CDN - Reliable fallbacks
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://archlinux.thaller.ws/$repo/os/$arch
+EOF
+    else
+        sudo tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+# Curated fast mirror list - updated for current performance
+# Based on mirror status and community feedback
+
+# United States - Consistently fast
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
+Server = https://mirrors.lug.mtu.edu/archlinux/$repo/os/$arch
+Server = https://repo.ialab.dsu.edu/archlinux/$repo/os/$arch
+
+# Europe - High performance
+Server = https://mirror.selfnet.de/archlinux/$repo/os/$arch
+Server = https://arch.mirror.constant.com/$repo/os/$arch
+Server = https://mirrors.dotsrc.org/archlinux/$repo/os/$arch
+
+# Global CDN - Reliable fallbacks
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://archlinux.thaller.ws/$repo/os/$arch
+EOF
+    fi
+    
+    print_success "Curated fast mirrors configured"
+    
     # Update package database with new mirrors
-    print_step "Updating package database with optimized mirrors..."
+    print_step "Updating package database with fast mirrors..."
     if [ "$EUID" -eq 0 ]; then
         pacman -Sy --noconfirm 2>&1 | grep -v "warning: insufficient columns"
     else
         sudo pacman -Sy --noconfirm 2>&1 | grep -v "warning: insufficient columns"
     fi
+}
+
+# Test mirror connectivity and warn user if issues persist
+test_mirror_connectivity() {
+    print_step "Testing mirror connectivity..."
     
-    return 0
+    # Quick test with a small package info fetch
+    if [ "$EUID" -eq 0 ]; then
+        timeout 15 pacman -Si bash >/dev/null 2>&1
+    else
+        timeout 15 sudo pacman -Si bash >/dev/null 2>&1
+    fi
+    
+    if [ $? -ne 0 ]; then
+        print_warning "Mirror connectivity issues detected"
+        echo -e "${YELLOW}Your current mirrors may be slow or experiencing issues.${NC}"
+        echo -e "${YELLOW}The script will continue with retry logic, but installations may take longer.${NC}"
+        echo -e "${BLUE}If you experience repeated failures, you may want to:${NC}"
+        echo -e "${BLUE}1. Check your internet connection${NC}"
+        echo -e "${BLUE}2. Try running the script again later${NC}"
+        echo -e "${BLUE}3. Use: ./setup.sh --interactive for more control${NC}"
+        echo -e ""
+        
+        if [ "$INTERACTIVE_MODE" = true ]; then
+            echo -e "${CYAN}Continue with current mirrors? (y/n) [y]${NC}"
+            read -r continue_setup
+            continue_setup=${continue_setup:-y}
+            
+            if [[ ! "$continue_setup" =~ ^[Yy]$ ]]; then
+                print_warning "Setup cancelled by user"
+                exit 1
+            fi
+        else
+            print_step "Continuing in non-interactive mode with retry logic..."
+            sleep 2
+        fi
+    else
+        print_success "Mirror connectivity test passed"
+    fi
 }
 
 # Update system packages
@@ -473,19 +583,11 @@ install_core_deps() {
     # Export COLUMNS to help pacman format output better
     export COLUMNS=120
     
-    if [ "$EUID" -eq 0 ]; then
-        pacman -S --noconfirm --needed curl wget git python python-pip python-virtualenv unzip \
-            base-devel file cmake ripgrep fd fzf tmux zsh \
-            jq bat htop github-cli 2>&1 | grep -v "warning: insufficient columns"
-    else
-        sudo pacman -S --noconfirm --needed curl wget git python python-pip python-virtualenv unzip \
-            base-devel file cmake ripgrep fd fzf tmux zsh \
-            jq bat htop github-cli 2>&1 | grep -v "warning: insufficient columns"
-    fi
+    install_packages_robust "curl wget git python python-pip python-virtualenv unzip base-devel file cmake ripgrep fd fzf tmux zsh jq bat htop github-cli" "core dependencies"
     
-    if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    if [ $? -ne 0 ]; then
         print_error "Failed to install core dependencies"
-        print_warning "You may need to run 'sudo pacman -Syu' first"
+        print_warning "You may need to run 'sudo pacman -Syu' first or try the script again"
         return 1
     fi
     
@@ -505,7 +607,7 @@ install_modern_cli_tools() {
     # Try to install Rust via pacman first (more reliable in WSL)
     if ! command_exists cargo; then
         print_step "Installing Rust via pacman..."
-        run_elevated pacman -S --noconfirm --needed rust 2>&1 | grep -v "warning: insufficient columns"
+        install_packages_robust "rust" "Rust programming language"
         
         # If pacman installation failed, try rustup as fallback
         if ! command_exists cargo; then
@@ -533,10 +635,7 @@ install_modern_cli_tools() {
     print_step "Installing modern CLI tools from package manager..."
     
     # Many of these tools are available in pacman and more reliable to install
-    run_elevated pacman -S --noconfirm --needed \
-        exa bat fd ripgrep starship \
-        lazygit ranger ncdu duf gdu \
-        2>&1 | grep -v "warning: insufficient columns"
+    install_packages_robust "exa bat fd ripgrep starship lazygit ranger ncdu duf gdu" "modern CLI tools"
     
     # Only try cargo installs if cargo is available and for tools not in pacman
     if command_exists cargo; then
@@ -568,9 +667,7 @@ setup_modern_terminal() {
     print_header "Installing Modern Terminal Dependencies"
     
     # Install dependencies for terminal emulators
-    run_elevated pacman -S --noconfirm --needed \
-        cmake freetype2 fontconfig pkg-config \
-        2>&1 | grep -v "warning: insufficient columns"
+    install_packages_robust "cmake freetype2 fontconfig pkg-config" "terminal dependencies"
     
     # Only create themed configs if not minimal setup
     if [ "$SELECTED_THEME" != "minimal" ]; then
@@ -627,9 +724,8 @@ EOF
 install_fastfetch() {
     print_header "Installing Fastfetch"
     if ! command_exists fastfetch; then
-        print_step "Installing Fastfetch (modern neofetch alternative)..."
-        run_elevated pacman -S --noconfirm --needed fastfetch 2>&1 | grep -v "warning: insufficient columns"
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+        install_packages_robust "fastfetch" "Fastfetch (modern neofetch alternative)"
+        if [ $? -ne 0 ]; then
             print_error "Failed to install Fastfetch"
             return 1
         fi
@@ -651,37 +747,142 @@ install_fastfetch() {
     return 0
 }
 
-# Install Neovim text editor
+# Install Neovim text editor with retry logic for mirror issues
 install_neovim() {
     print_header "Installing Neovim"
     if ! command_exists nvim; then
         print_step "Installing Neovim from official Arch repository..."
         
-        # Install the latest Neovim from Arch repos
-        run_elevated pacman -S --noconfirm --needed neovim 2>&1 | grep -v "warning: insufficient columns"
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            print_error "Failed to install Neovim"
-            return 1
+        # Attempt installation with retry logic for mirror issues
+        local max_attempts=3
+        local attempt=1
+        local install_success=false
+        
+        while [ $attempt -le $max_attempts ] && [ "$install_success" = false ]; do
+            print_step "Installation attempt $attempt of $max_attempts..."
+            
+            # Try installing Neovim
+            if run_elevated pacman -S --noconfirm --needed neovim 2>&1 | grep -v "warning: insufficient columns"; then
+                install_success=true
+                print_success "Neovim installation successful"
+            else
+                if [ $attempt -lt $max_attempts ]; then
+                    print_warning "Installation attempt $attempt failed, trying different mirrors..."
+                    
+                    # Switch to different mirrors for retry
+                    if [ $attempt -eq 2 ]; then
+                        print_step "Switching to alternative mirrors..."
+                        use_fallback_mirrors
+                    elif [ $attempt -eq 3 ]; then
+                        print_step "Using emergency mirror configuration..."
+                        use_emergency_mirrors
+                    fi
+                    
+                    # Brief delay before retry
+                    sleep 2
+                else
+                    print_warning "All installation attempts failed, trying alternative method..."
+                fi
+            fi
+            
+            attempt=$((attempt + 1))
+        done
+        
+        # If pacman installation failed, try manual installation as fallback
+        if [ "$install_success" = false ]; then
+            print_step "Attempting manual Neovim installation as fallback..."
+            install_neovim_manual
+            install_success=$?
         fi
         
-        # Create symlink in local bin for consistency
-        ln -sf /usr/bin/nvim ~/.local/bin/nvim
-        
-        # Verify installation
-        print_step "Verifying Neovim installation..."
-        if command_exists nvim; then
-            nvim --version
-            print_success "Neovim installed successfully"
+        if [ "$install_success" = true ] || [ $? -eq 0 ]; then
+            # Create symlink in local bin for consistency
+            if [ -f /usr/bin/nvim ]; then
+                ln -sf /usr/bin/nvim ~/.local/bin/nvim
+            fi
+            
+            # Verify installation
+            print_step "Verifying Neovim installation..."
+            if command_exists nvim; then
+                nvim --version | head -1
+                print_success "Neovim installed successfully"
+            else
+                print_error "Neovim installation verification failed"
+                return 1
+            fi
         else
-            print_warning "Neovim installation verification failed."
-            print_warning "You may need to restart your terminal or log out and back in."
+            print_error "Failed to install Neovim after all attempts"
             return 1
         fi
     else
         print_step "Neovim is already installed"
-        nvim --version
+        nvim --version | head -1
     fi
     return 0
+}
+
+# Emergency mirror configuration for critical installations
+use_emergency_mirrors() {
+    print_step "Configuring emergency mirrors..."
+    
+    # Use only the most reliable mirrors for emergency installations
+    if [ "$EUID" -eq 0 ]; then
+        tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+# Emergency mirror configuration - most reliable only
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
+Server = https://mirror.selfnet.de/archlinux/$repo/os/$arch
+EOF
+    else
+        sudo tee /etc/pacman.d/mirrorlist > /dev/null << 'EOF'
+# Emergency mirror configuration - most reliable only
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.arizona.edu/archlinux/$repo/os/$arch
+Server = https://mirror.selfnet.de/archlinux/$repo/os/$arch
+EOF
+    fi
+    
+    # Force refresh package database
+    run_elevated pacman -Sy --noconfirm >/dev/null 2>&1
+}
+
+# Manual Neovim installation fallback
+install_neovim_manual() {
+    print_step "Downloading Neovim manually..."
+    
+    # Create temporary directory
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir" || return 1
+    
+    # Download latest Neovim release
+    local nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz"
+    
+    if curl -L -o nvim-linux64.tar.gz "$nvim_url"; then
+        print_step "Installing Neovim manually to /opt..."
+        
+        # Install to /opt directory
+        if run_elevated tar -C /opt -xzf nvim-linux64.tar.gz; then
+            # Create symlink
+            run_elevated ln -sf /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim
+            
+            # Cleanup
+            cd "$HOME" || return 1
+            rm -rf "$temp_dir"
+            
+            print_success "Neovim installed manually"
+            return 0
+        else
+            print_error "Failed to extract Neovim"
+            cd "$HOME" || return 1
+            rm -rf "$temp_dir"
+            return 1
+        fi
+    else
+        print_error "Failed to download Neovim"
+        cd "$HOME" || return 1
+        rm -rf "$temp_dir"
+        return 1
+    fi
 }
 
 # Setup nvim with Kickstart configuration 
@@ -1738,9 +1939,7 @@ setup_system_monitoring() {
     print_header "Setting up system monitoring tools"
     
     # Install monitoring tools
-    run_elevated pacman -S --noconfirm --needed \
-        htop btop iotop nethogs \
-        2>&1 | grep -v "warning: insufficient columns"
+    install_packages_robust "htop btop iotop nethogs" "system monitoring tools"
     
     # Create btop config with Rose Pine if selected
     ensure_dir "$HOME/.config/btop"
@@ -3664,6 +3863,7 @@ select_theme || SELECTED_THEME="minimal"
 # Step 1: Initial setup
 setup_workspace || exit 1
 optimize_mirrors || exit 1
+test_mirror_connectivity || exit 1
 update_system || exit 1
 install_core_deps || exit 1
 
