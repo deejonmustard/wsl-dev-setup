@@ -1201,8 +1201,8 @@ EOF
         print_success "Found Windows Music directory: $music_dir"
     fi
     
-    # Configure MPD
-    local mpd_config_dir="$DOTFILES_DIR/.config/mpd"
+    # Configure MPD - using organized .mpd structure
+    local mpd_config_dir="$DOTFILES_DIR/.mpd"
     ensure_dir "$mpd_config_dir"
     
     # Create required MPD directories as per Arch Wiki recommendations
@@ -1245,6 +1245,9 @@ audio_output {
     device      "default"
     enabled     "no"
 }
+
+# Disable Avahi (network discovery) to prevent those errors
+zeroconf_enabled    "no"
 
 # Performance and scanning settings
 auto_update         "yes"
@@ -1305,8 +1308,8 @@ EOF
     print_step "Config location: $HOME/.config/mpd/mpd.conf"
     print_step "Music directory: $music_dir"
     
-    # Configure rmpc
-    local rmpc_config_dir="$DOTFILES_DIR/.config/rmpc"
+    # Configure rmpc - using organized .rmpc structure
+    local rmpc_config_dir="$DOTFILES_DIR/.rmpc"
     ensure_dir "$rmpc_config_dir"
     
     print_step "Creating rmpc configuration..."
@@ -1920,14 +1923,16 @@ setup_nvim_config() {
     # Create the custom directory
     mkdir -p "$TEMP_NVIM_DIR/lua/custom"
     
-    # Store Neovim configuration in dotfiles directory
-    local nvim_config_dir="$DOTFILES_DIR/.config/nvim"
-    ensure_dir "$(dirname "$nvim_config_dir")"
+    # Store Neovim configuration in dotfiles directory using organized .nvim structure
+    local nvim_config_dir="$DOTFILES_DIR/.nvim"
     
     print_step "Setting up Neovim configuration in dotfiles directory..."
     
-    # Backup existing config in dotfiles if exists
+    # Backup existing config in dotfiles if exists (limit to 2 backups max)
     if [ -d "$nvim_config_dir" ] && [ "$(ls -A "$nvim_config_dir")" ]; then
+        # Clean up old backups first (keep only 1 previous backup)
+        find "$DOTFILES_DIR" -name ".nvim_backup_*" -type d | head -n -1 | xargs rm -rf 2>/dev/null || true
+        
         BACKUP_DIR="${nvim_config_dir}_backup_$(date +%Y%m%d%H%M%S)"
         print_step "Backing up existing Neovim configuration to $BACKUP_DIR"
         mv "$nvim_config_dir" "$BACKUP_DIR"
@@ -2543,7 +2548,10 @@ EOF
 setup_tmux_config() {
     print_header "Setting up tmux configuration"
     
-    local tmux_conf_path="$DOTFILES_DIR/.tmux.conf"
+    # Create tmux config in organized .tmux structure
+    local tmux_config_dir="$DOTFILES_DIR/.tmux"
+    ensure_dir "$tmux_config_dir"
+    local tmux_conf_path="$tmux_config_dir/.tmux.conf"
     
     print_step "Creating tmux configuration..."
     cat > "$tmux_conf_path" << 'EOF'
@@ -2618,7 +2626,7 @@ if-shell "uname -r | grep -q microsoft" \
     'bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "clip.exe"'
 EOF
 
-    # Create symlink from home to dotfiles
+    # Create symlink from home to dotfiles (pointing to .tmux/.tmux.conf)
     if [ -L "$HOME/.tmux.conf" ] || [ -f "$HOME/.tmux.conf" ]; then
         backup_file "$HOME/.tmux.conf"
     fi
@@ -2637,7 +2645,7 @@ EOF
 setup_starship_config() {
     print_header "Setting up Starship prompt"
     
-    local starship_config_dir="$DOTFILES_DIR/.config/starship"
+    local starship_config_dir="$DOTFILES_DIR/.starship"
     ensure_dir "$starship_config_dir"
     
     local starship_config_path="$starship_config_dir/starship.toml"
@@ -2730,6 +2738,125 @@ EOF
     fi
     
     print_success "Starship prompt configured successfully"
+    return 0
+}
+
+# Setup WSL browser integration for GitHub CLI and other tools
+setup_wsl_browser_integration() {
+    print_header "Setting up WSL browser integration"
+    
+    # Install wslu package for wslview utility
+    print_step "Installing wslu package for Windows browser integration..."
+    install_packages_robust "wslu" "WSL utilities for Windows integration"
+    
+    if [ $? -ne 0 ]; then
+        print_warning "Failed to install wslu package, creating manual browser integration..."
+        
+        # Create a custom browser script as fallback
+        print_step "Creating custom browser integration script..."
+        cat > "$HOME/bin/browser-opener" << 'EOF'
+#!/bin/bash
+# Custom browser opener for WSL to Windows browser integration
+
+# Get Windows username
+WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+if [ -z "$WIN_USER" ]; then
+    WIN_USER="$USER"
+fi
+
+# Common browser paths to try
+BROWSERS=(
+    "/mnt/c/Users/$WIN_USER/AppData/Local/Zen Browser/zen.exe"
+    "/mnt/c/Program Files/Zen Browser/zen.exe"
+    "/mnt/c/Users/$WIN_USER/AppData/Local/Google/Chrome/Application/chrome.exe"
+    "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+    "/mnt/c/Users/$WIN_USER/AppData/Local/Microsoft/Edge/Application/msedge.exe"
+    "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+    "/mnt/c/Program Files/Mozilla Firefox/firefox.exe"
+)
+
+# Try to find and use the first available browser
+for browser in "${BROWSERS[@]}"; do
+    if [ -f "$browser" ]; then
+        echo "Opening with: $(basename "$browser")"
+        "$browser" "$@" &
+        exit 0
+    fi
+done
+
+# If no browser found, try using cmd.exe start
+echo "No browser found, trying system default..."
+cmd.exe /c start "$@"
+EOF
+        chmod +x "$HOME/bin/browser-opener"
+        
+        # Set BROWSER variable to our custom script
+        export BROWSER="$HOME/bin/browser-opener"
+        
+        print_success "Custom browser integration created"
+        
+        # Add to chezmoi if enabled
+        if [ "$USE_CHEZMOI" = true ]; then
+            safe_add_to_chezmoi "$HOME/bin/browser-opener" "WSL browser integration script"
+        fi
+    else
+        print_success "wslu package installed successfully"
+        
+        # wslview is now available, set it as the default browser
+        export BROWSER="wslview"
+        print_step "Set BROWSER environment variable to wslview"
+    fi
+    
+    # Add BROWSER variable to shell configuration
+    print_step "Adding BROWSER environment variable to shell configuration..."
+    
+    # Add to .bashrc
+    if ! grep -q "export BROWSER=" "$HOME/.bashrc"; then
+        echo "" >> "$HOME/.bashrc"
+        echo "# WSL browser integration" >> "$HOME/.bashrc"
+        if command_exists wslview; then
+            echo "export BROWSER=\"wslview\"" >> "$HOME/.bashrc"
+        else
+            echo "export BROWSER=\"\$HOME/bin/browser-opener\"" >> "$HOME/.bashrc"
+        fi
+    fi
+    
+    # Add to .zshrc in dotfiles if it exists
+    if [ -f "$DOTFILES_DIR/.zshrc" ]; then
+        if ! grep -q "export BROWSER=" "$DOTFILES_DIR/.zshrc"; then
+            echo "" >> "$DOTFILES_DIR/.zshrc"
+            echo "# WSL browser integration" >> "$DOTFILES_DIR/.zshrc"
+            if command_exists wslview; then
+                echo "export BROWSER=\"wslview\"" >> "$DOTFILES_DIR/.zshrc"
+            else
+                echo "export BROWSER=\"\$HOME/bin/browser-opener\"" >> "$DOTFILES_DIR/.zshrc"
+            fi
+        fi
+    fi
+    
+    # Test browser integration
+    print_step "Testing browser integration..."
+    if command_exists wslview; then
+        print_success "wslview is available for opening URLs in Windows browser"
+    elif [ -x "$HOME/bin/browser-opener" ]; then
+        print_success "Custom browser opener is available"
+    else
+        print_warning "Browser integration may not work properly"
+    fi
+    
+    # Show user which browser will be used
+    echo -e "\n${CYAN}Browser Integration Setup:${NC}"
+    if command_exists wslview; then
+        echo -e "${BLUE}→ Using wslview to open URLs in Windows default browser${NC}"
+        echo -e "${BLUE}→ This will work with GitHub CLI authentication${NC}"
+    else
+        echo -e "${BLUE}→ Using custom browser opener${NC}"
+        echo -e "${BLUE}→ Will try to find Zen Browser, Chrome, Edge, or Firefox${NC}"
+    fi
+    echo -e "${BLUE}→ BROWSER environment variable configured${NC}"
+    echo -e "${YELLOW}→ You may need to restart your shell for changes to take effect${NC}"
+    
+    print_success "WSL browser integration configured successfully"
     return 0
 }
 
@@ -4212,12 +4339,20 @@ display_completion_message() {
     # Show dotfiles information
     echo -e "\n${CYAN}Cross-Platform Dotfiles Management:${NC}"
     echo -e "${GREEN}✓ WSL dotfiles directory created: ${BLUE}$DOTFILES_DIR${NC}"
+    echo -e "${GREEN}✓ Organized .appname structure (like Windows)${NC}"
     echo -e "${GREEN}✓ Windows sync capability enabled${NC}"
     if [ -d "/mnt/c/Users/$WIN_USER/dotfiles" ]; then
         echo -e "Windows dotfiles location: ${BLUE}C:\\Users\\$WIN_USER\\dotfiles${NC}"
         echo -e "Sync commands available in ~/dotfiles/"
     fi
     echo -e "Edit from either Windows or WSL and use sync scripts!"
+    
+    echo -e "\n${CYAN}Dotfiles Structure:${NC}"
+    echo -e "${BLUE}→ .nvim/         # Neovim configuration${NC}"
+    echo -e "${BLUE}→ .mpd/          # MPD music daemon${NC}"
+    echo -e "${BLUE}→ .rmpc/         # rmpc music client${NC}"
+    echo -e "${BLUE}→ .starship/     # Starship prompt${NC}"
+    echo -e "${BLUE}→ .tmux/         # Tmux configuration${NC}"
     
     if [ "$USE_CHEZMOI" = true ]; then
         echo -e "Dotfile manager: ${GREEN}Chezmoi enabled${NC}"
@@ -4239,6 +4374,8 @@ display_completion_message() {
     echo -e "\n${YELLOW}Your development environment is ready!${NC}"
     return 0
 }
+
+
 
 # --- Main Script Execution ---
 
@@ -4288,6 +4425,9 @@ optimize_mirrors || exit 1
 test_mirror_connectivity || exit 1
 update_system || exit 1
 install_core_deps || exit 1
+
+# Set up WSL browser integration for GitHub CLI
+setup_wsl_browser_integration || exit 1
 
 # Set up GitHub information after core deps are installed
 setup_github_info || exit 1
