@@ -1231,7 +1231,6 @@ EOF
     return 0
 }
 
-# Ghostty terminal removed - doesn't work well in WSL
 
 # Install Fastfetch for system information display
 install_fastfetch() {
@@ -2780,7 +2779,6 @@ $DOTFILES_DIR/
 ├── .gitconfig           # Git configuration
 ├── .config/
 │   ├── nvim/           # Neovim configuration
-│   ├── ghostty/        # Ghostty terminal config
 │   └── wezterm/        # WezTerm config (if applicable)
 └── .git/               # Version control
 \`\`\`
