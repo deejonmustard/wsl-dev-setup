@@ -3,46 +3,24 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/Version-v0.0.1-blue.svg)](https://github.com/deejonmustard/wsl-dev-setup/releases/tag/v0.0.1)
 
-A comprehensive development environment setup script for WSL Arch Linux that gets you from **0→1** with modern tools while making the **1→100** customization path effortless.
+Automated setup script for WSL Arch Linux development environment.
 
-## Features
+## Components
 
-### Core Development Environment
-- **Neovim** with choice of Regular or Modular Kickstart configuration
-- **Zsh** with Oh My Zsh, autosuggestions, and syntax highlighting  
-- **Tmux** for terminal multiplexing with vim-like navigation
-- **Node.js** via NVM for flexible version management
-- **Claude Code** AI assistant (optional - requires Anthropic account)
-- **GitHub CLI** for seamless repository management
+- **Neovim** with Kickstart configuration (single-file or modular)
+- **Zsh** with Oh My Zsh and plugins
+- **Tmux** terminal multiplexer
+- **Node.js** via NVM
+- **Modern CLI tools**: `eza`, `bat`, `ripgrep`, `fzf`, `zoxide`, `lazygit`, `starship`
+- **Dotfiles management**: chezmoi or manual sync
+- **Music system**: MPD + rmpc with Windows music access
+- **GitHub CLI** integration
+- **Claude Code** AI assistant (optional)
 
-### Modern CLI Tools Foundation
-- **eza** - Modern replacement for ls with icons
-- **bat** - Cat clone with syntax highlighting  
-- **fd** - User-friendly find alternative
-- **ripgrep** - Lightning-fast grep replacement
-- **fzf** - Fuzzy finder for files and commands
-- **zoxide** - Smarter cd command
-- **lazygit** - Terminal UI for git
-- **starship** - Cross-shell prompt
-- **fastfetch** - System information display
-- **rmpc + MPD** - Terminal music player with Windows music access
+## Installation
 
-### Flexible Dotfile Management
-- **Optional Chezmoi** - Advanced dotfile management for power users
-- **Manual Management** - Simple directory-based approach for those who prefer control
-- **Cross-Platform Support** - Works with existing Windows symlink setups
-- **Unified Approach** - Single source of truth for all your configurations
+### WSL Arch Linux Setup
 
-### WSL Integration & Modern Tooling
-- **Cursor IDE Support** - Seamless integration with Windows installation
-- **GitHub Integration** - Authentication and repository management
-- **Cross-Platform Utilities** - Windows Explorer integration, clipboard sync
-- **Performance Optimizations** - WSL-specific tweaks and enhancements
-
-## Quick Install
-
-Install WSL Arch Linux:
- 
 ```bash
 # Remove Previous Arch Installation (If Needed)
 wsl.exe --unregister archlinux
@@ -57,7 +35,7 @@ wsl.exe -l -v
 wsl.exe -d archlinux
 ```
 
-From a fresh Arch Linux WSL installation:
+### Run Setup Script
 
 ```bash
 # Download the setup script
@@ -68,171 +46,77 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-#### _Optional:_ Run in interactive mode (prompts for each package)
-```bash
-./setup.sh --interactive
-```
+Interactive mode: `./setup.sh --interactive`
 
-The script will:
-1. Initialize the pacman keyring if needed
-2. Install sudo and base packages
-3. Offer to create a new user (recommended)  
-4. Set up the complete development environment with your choices
+## Configuration
 
-If you create a new user, you'll need to:
-1. Restart WSL: `wsl.exe --terminate archlinux` (in PowerShell)
-2. Launch Arch Linux again: `wsl.exe -d archlinux`
-3. Run the setup script again as your new user
+### Dotfiles Management
+- Creates `~/dotfiles` directory containing all configuration files
+- Symlinks configurations to appropriate locations in `$HOME`
+- Git repository for version control
+- Optional Windows sync scripts
 
-## Flexible Dotfile Management
+### Neovim Options
+- **Single-file**: One `init.lua` file
+- **Modular**: Multi-file structure in `lua/` directory
 
-The setup intelligently adapts to your preferences and existing workflows:
-
-### Automatic Detection
-- Detects existing Windows dotfiles at common locations
-- Preserves existing configurations and workflows
-- No duplication or conflicts with your current setup
-
-### Two Management Approaches
-
-**Option 1: Chezmoi (Advanced Users)**
-- Template-based configuration with OS-specific handling
-- Git integration with automatic syncing
-- Powerful for managing multiple machines
-- Handles complex cross-platform scenarios
-- **Optional**: You choose whether to use it
-
-**Option 2: Manual Management (Simple & Direct)**
-- Direct file editing in organized dotfiles directory
-- Simple symlink-based system compatibility
-- Full control over every configuration
-- Traditional Unix approach with modern tooling
-
-### Cross-Platform Workflows
-
-**Unified Windows + WSL:**
-- Works with existing Windows symlink setups
-- Edit from both Windows and WSL seamlessly  
-- Single git repository for all dotfiles (if using Chezmoi)
-- Automatic OS difference handling
-
-**WSL-Only (Traditional):**
-- Dotfiles stored in WSL home directory
-- Separate from Windows configurations
-- Standard Linux dotfile approach
-
-## Neovim Configuration Options
-
-Choose the Kickstart.nvim variant that fits your needs:
-
-### Regular Kickstart (Default)
-- **Single File**: Everything in one `init.lua`
-- **Best For**: Beginners, simple setups
-- **Pros**: Easy to understand, self-contained
-- **Source**: Official nvim-lua/kickstart.nvim
-
-### Modular Kickstart  
-- **Multi-File**: Configuration split into logical modules
-- **Best For**: Advanced users, extensive customization
-- **Pros**: Better organization, easier to extend
-- **Source**: dam9000/kickstart-modular.nvim fork
-
-Both provide the same powerful features - only the file organization differs. You can also:
-- Use your existing GitHub fork of either version
-- Use a local clone you already have
-- Start from the official repositories
-
-## What's Included
-
-### Development Tools
-- **Core Tools**: git, ripgrep, fd, fzf, tmux, zsh, jq, bat, htop
-- **Modern CLI**: eza, zoxide, lazygit, ranger, ncdu, duf
-- **System Monitoring**: fastfetch, btop
-- **Music System**: MPD + rmpc with Windows music folder access
-- **Build Tools**: base-devel, cmake, python, rust (via rustup)
-
-### Terminal & Shell
-- **Neovim**: Latest version with Kickstart.nvim configuration
-- **Zsh**: Enhanced with Oh My Zsh and productivity plugins
-- **Starship**: Customizable cross-shell prompt
-- **Tmux**: Multiplexer with intuitive keybindings
-
-### Integration & Utilities  
-- **WSL Utilities**: Windows path integration, clipboard sync
-- **Cursor/VS Code**: Automatic detection and wrapper scripts
-- **GitHub CLI**: Repository management and authentication
-- **Music System**: MPD + rmpc installed via pacman with Windows music folder access
-- **Cross-Platform**: Seamless Windows-WSL workflow integration
+### Dotfiles Sync Options
+- **Chezmoi**: Template-based management with cross-platform support
+- **Manual**: Bash scripts for Windows ↔ WSL synchronization
 
 ## Directory Structure
 
-The setup creates a clean, organized structure:
 ```
 ~/
-├── dev/                   # Main development environment  
-│   ├── docs/              # Documentation and guides
+├── dev/
+│   ├── docs/              # Documentation
 │   ├── bin/               # Custom scripts
-│   ├── projects/          # Your projects (recommended)
+│   ├── projects/          # Development projects
 │   └── update.sh          # Environment updater
-├── dotfiles/              # Your dotfiles (location varies)
+├── dotfiles/              # Configuration files
 └── bin/                   # User executables
     ├── cursor-wrapper.sh  # Cursor IDE integration
-    ├── winopen            # Windows Explorer opener
+    ├── winopen            # Windows Explorer launcher
     └── clip-copy          # Clipboard utilities
 ```
-## Maintenance
 
-Keep your environment current:
+## Usage
+
 ```bash
-# Update everything  
+# Update environment
 ~/dev/update.sh
 
-# Update dotfiles (if using Chezmoi)
-chezmoi update
+# Sync dotfiles (manual mode)
+~/dotfiles/sync-to-windows.sh
+~/dotfiles/sync-from-windows.sh
 
-# Update specific tools
-nvm install --lts       # Node.js
-cargo install-update -a # Rust tools (if installed)
+# Music system
+music-start
+rmpc
+
+# Modern CLI tools
+ll                # eza with icons
+bat file.txt      # syntax highlighting
+z projects        # zoxide cd
 ```
 
-## Optional Enhancements
+## Documentation
 
-### Claude Code AI Assistant
-The script includes optional Claude Code installation:
-1. Requires Anthropic account with billing setup
-2. Minimum $5 credits needed for usage
-3. Install: Automatically handled during setup
-4. Authenticate: `claude login` after installation
+After installation:
+- Quick reference: `cat ~/dev/docs/quick-reference.md`
+- Workflow guide: `cat ~/dev/docs/workflow-guide.md`
+- All docs: `ls ~/dev/docs/`
 
-### Cursor IDE Integration
-Full integration with Cursor IDE for Windows:
-- **Automatic Detection**: Scans common installation paths
-- **PATH Integration**: Adds Cursor to PATH when found
-- **WSL Wrapper**: Handles path conversion seamlessly  
-- **Command Aliases**: Both `cursor .` and `code .` work
+## Requirements
 
-### Getting Help
-Comprehensive documentation is created during installation:
-- **Workflow guide**: `cat ~/dev/docs/workflow-guide.md`
-- **Quick reference**: `cat ~/dev/docs/quick-reference.md`
-- **Dotfile guides**: `ls ~/dev/docs/` for all available documentation
+- WSL 2 with Arch Linux
+- Internet connection for package downloads
+- Windows 10/11
 
-## Ethos
+## Optional Components
 
-### 0→1: What We Handle
-✅ **Essential Tools**: All modern CLI tools and development infrastructure  
-✅ **Cross-Platform Setup**: Windows-WSL integration that just works  
-✅ **Solid Foundation**: Neovim, tmux, zsh configured and ready  
-✅ **Documentation**: Comprehensive guides for further customization  
-✅ **Flexibility**: Optional vs required components clearly separated
-
-### 1→100: What's Up to You  
-🎨 **Themes & Colors**: Start with clean base, theme however you want  
-⚙️ **Advanced Configs**: Powerful tools provided, configurations are yours  
-🔧 **Workflow Choices**: Infrastructure supports any workflow you prefer  
-🎯 **Specialization**: Foundation supports any development focus  
-
-This approach means you get a **production-ready development environment in minutes**, with complete freedom to make it uniquely yours.
+- **Claude Code**: Requires Anthropic account with billing
+- **Cursor IDE**: Windows installation for full integration
 
 ## License
 

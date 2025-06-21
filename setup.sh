@@ -359,52 +359,13 @@ setup_workspace() {
     return 0
 }
 
-# Determine dotfiles directory based on user preference
+# Determine dotfiles directory and import existing Windows dotfiles
 determine_dotfiles_directory() {
     print_header "Setting up Dotfiles Directory"
     
-    # Get Windows username
-    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
-    if [ -z "$WIN_USER" ]; then
-        print_step "Enter your Windows username:"
-        read -r WIN_USER
-    fi
-    
-    # Check for existing Windows dotfiles
-    WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
-    
-    if [ -d "$WIN_DOTFILES" ]; then
-        print_success "Found existing dotfiles at $WIN_DOTFILES"
-        DOTFILES_DIR="$WIN_DOTFILES"
-    else
-        echo -e "\n${CYAN}Choose your dotfiles storage location:${NC}"
-        echo -e "${BLUE}1) Unified Windows + WSL location (recommended for cross-platform editing)${NC}"
-        echo -e "   - Dotfiles stored in Windows-accessible location"
-        echo -e "   - Edit from both Windows and WSL"
-        echo -e ""
-        echo -e "${BLUE}2) WSL-only location${NC}"
-        echo -e "   - Traditional Linux approach"
-        echo -e "   - Dotfiles stored in WSL home directory"
-        echo -e ""
-        
-        read -p "Enter your choice (1 or 2) [1]: " choice
-        choice=${choice:-1}
-        
-        case $choice in
-            1)
-                DOTFILES_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
-                print_step "Using unified Windows-accessible dotfiles directory: $DOTFILES_DIR"
-                ;;
-            2)
-                DOTFILES_DIR="$HOME/dotfiles"
-                print_step "Using WSL-only dotfiles directory: $DOTFILES_DIR"
-                ;;
-            *)
-                print_warning "Invalid choice, using unified approach"
-                DOTFILES_DIR="/mnt/c/Users/$WIN_USER/dotfiles"
-                ;;
-        esac
-    fi
+    # ALWAYS use ~/dotfiles in WSL as the primary dotfiles directory
+    DOTFILES_DIR="$HOME/dotfiles"
+    print_step "Creating WSL dotfiles directory: $DOTFILES_DIR"
     
     # Create dotfiles directory
     ensure_dir "$DOTFILES_DIR" || return 1
@@ -415,8 +376,38 @@ determine_dotfiles_directory() {
     ensure_dir "$DOTFILES_DIR/.config/tmux" || return 1
     ensure_dir "$DOTFILES_DIR/bin" || return 1
     
+    # Get Windows username for importing existing dotfiles
+    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    if [ -z "$WIN_USER" ]; then
+        print_step "Enter your Windows username:"
+        read -r WIN_USER
+    fi
+    
+    # Check for existing Windows dotfiles to import
+    WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
+    if [ -d "$WIN_DOTFILES" ]; then
+        print_success "Found existing Windows dotfiles at $WIN_DOTFILES"
+        echo -e "\n${BLUE}Would you like to import your existing Windows dotfiles? (y/n) [y]${NC}"
+        read -r import_response
+        import_response=${import_response:-y}
+        
+        if [[ "$import_response" =~ ^[Yy]$ ]]; then
+            print_step "Importing Windows dotfiles to WSL dotfiles directory..."
+            
+            # Copy Windows dotfiles to WSL, preserving structure
+            cp -r "$WIN_DOTFILES"/* "$DOTFILES_DIR/" 2>/dev/null || true
+            cp -r "$WIN_DOTFILES"/.[^.]* "$DOTFILES_DIR/" 2>/dev/null || true
+            
+            print_success "Windows dotfiles imported successfully"
+        fi
+    else
+        print_step "No existing Windows dotfiles found at $WIN_DOTFILES"
+        print_step "Will create fresh dotfiles structure"
+    fi
+    
     # Export DOTFILES_DIR as global variable
     export DOTFILES_DIR
+    export WIN_USER
     
     # Verify directory exists and is accessible
     if [ ! -d "$DOTFILES_DIR" ]; then
@@ -432,56 +423,194 @@ determine_dotfiles_directory() {
     print_success "Dotfiles directory configured at: $DOTFILES_DIR"
     print_step "Directory verified: $(ls -ld "$DOTFILES_DIR")"
     
-    # Show cross-platform information if using unified directory
-    if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
-        echo -e "\n${CYAN}Cross-Platform Access:${NC}"
-        echo -e "${BLUE}→ Windows path: $(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')${NC}"
-        echo -e "${BLUE}→ Edit from Windows: Open the above path in your editor${NC}"
-        echo -e "${BLUE}→ Edit from WSL: Access at $DOTFILES_DIR${NC}"
-    fi
+    # Show cross-platform sync information
+    echo -e "\n${CYAN}Cross-Platform Dotfiles Setup:${NC}"
+    echo -e "${BLUE}→ WSL dotfiles: $DOTFILES_DIR${NC}"
+    echo -e "${BLUE}→ Windows dotfiles: $(echo "$WIN_DOTFILES" | sed 's|/mnt/c|C:|')${NC}"
+    echo -e "${BLUE}→ Chezmoi will sync between both locations${NC}"
+    echo -e "${BLUE}→ Edit from either platform - changes will sync via chezmoi${NC}"
     
     return 0
 }
 
 # Ask if user wants to use chezmoi
 ask_chezmoi() {
-    print_header "Dotfile Management Setup"
+    print_header "Cross-Platform Dotfile Management Setup"
     
-    echo -e "\n${CYAN}Would you like to use Chezmoi for dotfile management?${NC}"
-    echo -e "${BLUE}Chezmoi helps manage your configuration files across systems.${NC}"
+    echo -e "\n${CYAN}Would you like to use Chezmoi for cross-platform dotfile management?${NC}"
+    echo -e "${BLUE}Chezmoi helps manage your configuration files across Windows and WSL.${NC}"
     echo -e ""
-    echo -e "${GREEN}Benefits:${NC}"
+    echo -e "${GREEN}Benefits for your setup:${NC}"
+    echo -e "  • Sync dotfiles between Windows and WSL"
     echo -e "  • Version control for all your config files"
+    echo -e "  • Template support for OS-specific configurations"
     echo -e "  • Easy syncing across multiple machines"
-    echo -e "  • Template support for machine-specific configs"
     echo -e "  • Automatic backups before applying changes"
+    echo -e ""
+    echo -e "${CYAN}Your WSL dotfiles will be stored in: ${BLUE}~/dotfiles${NC}"
+    echo -e "${CYAN}Windows dotfiles can be synced to: ${BLUE}C:\\Users\\$WIN_USER\\dotfiles${NC}"
     echo -e ""
     echo -e "${YELLOW}Note: You can always set this up later if you prefer.${NC}"
     echo -e ""
     
-    read -p "Use Chezmoi for dotfile management? (y/n) [n]: " use_chezmoi_response
-    use_chezmoi_response=${use_chezmoi_response:-n}
+    read -p "Use Chezmoi for cross-platform dotfile management? (y/n) [y]: " use_chezmoi_response
+    use_chezmoi_response=${use_chezmoi_response:-y}
     
     if [[ "$use_chezmoi_response" =~ ^[Yy]$ ]]; then
         USE_CHEZMOI=true
-        print_success "Chezmoi will be configured for dotfile management"
-        
-        # Set the chezmoi source directory to the dotfiles directory
-        CHEZMOI_SOURCE_DIR="$DOTFILES_DIR"
+        print_success "Chezmoi will be configured for cross-platform dotfile management"
         
         return 0
     else
         USE_CHEZMOI=false
         print_step "Skipping Chezmoi setup"
         print_step "Your dotfiles will be stored in: $DOTFILES_DIR"
+        print_step "Manual sync scripts will be created for cross-platform usage"
         print_step "To set up Chezmoi later, see: ~/dev/docs/dotfile-management.md"
+        
+        # Create basic sync scripts even without chezmoi
+        create_manual_sync_scripts
+        
         return 0
     fi
 }
 
-# Setup Chezmoi for dotfile management (only called if user wants it)
+# Create manual sync scripts for cross-platform dotfile management (when not using Chezmoi)
+create_manual_sync_scripts() {
+    print_step "Creating manual cross-platform sync scripts..."
+    
+    # Script to sync WSL dotfiles to Windows
+    cat > "$DOTFILES_DIR/sync-to-windows.sh" << 'EOF'
+#!/bin/bash
+# Sync WSL dotfiles to Windows dotfiles directory (Manual Mode)
+
+WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
+
+echo "Syncing WSL dotfiles to Windows..."
+echo "From: $HOME/dotfiles"
+echo "To: $WIN_DOTFILES"
+
+# Create Windows dotfiles directory if it doesn't exist
+mkdir -p "$WIN_DOTFILES"
+
+# Copy all files from WSL to Windows
+rsync -av --delete \
+    --exclude='.git/' \
+    --exclude='sync-*.sh' \
+    "$HOME/dotfiles/" "$WIN_DOTFILES/"
+
+echo "Sync complete!"
+echo "You can now edit your dotfiles from Windows at: $(echo "$WIN_DOTFILES" | sed 's|/mnt/c|C:|')"
+EOF
+    chmod +x "$DOTFILES_DIR/sync-to-windows.sh"
+    
+    # Script to sync Windows dotfiles to WSL
+    cat > "$DOTFILES_DIR/sync-from-windows.sh" << 'EOF'
+#!/bin/bash
+# Sync Windows dotfiles to WSL dotfiles directory (Manual Mode)
+
+WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
+
+if [ ! -d "$WIN_DOTFILES" ]; then
+    echo "Windows dotfiles directory not found: $WIN_DOTFILES"
+    echo "Run sync-to-windows.sh first to create it."
+    exit 1
+fi
+
+echo "Syncing Windows dotfiles to WSL..."
+echo "From: $WIN_DOTFILES"
+echo "To: $HOME/dotfiles"
+
+# Copy all files from Windows to WSL (excluding git and scripts)
+rsync -av \
+    --exclude='.git/' \
+    --exclude='sync-*.sh' \
+    "$WIN_DOTFILES/" "$HOME/dotfiles/"
+
+echo "Sync complete!"
+echo "Your configurations have been updated. You may need to restart your shell."
+EOF
+    chmod +x "$DOTFILES_DIR/sync-from-windows.sh"
+    
+    # Create a simple README for manual mode
+    cat > "$DOTFILES_DIR/README.md" << EOL
+# My Cross-Platform Dotfiles (Manual Sync)
+
+This directory contains my dotfiles for cross-platform use between Windows and WSL.
+
+## Architecture
+
+- **WSL Primary**: \`$HOME/dotfiles\` (this directory)
+- **Windows Sync**: \`C:\\Users\\$WIN_USER\\dotfiles\`
+- **Management**: Manual sync scripts
+
+## Cross-Platform Workflow
+
+### Sync WSL → Windows
+\`\`\`bash
+# Sync your WSL dotfiles to Windows
+./sync-to-windows.sh
+\`\`\`
+
+### Edit from Windows
+1. Navigate to \`C:\\Users\\$WIN_USER\\dotfiles\`
+2. Edit files with your favorite Windows editor
+3. Sync changes back to WSL:
+
+\`\`\`bash
+# Sync Windows changes back to WSL
+./sync-from-windows.sh
+\`\`\`
+
+### Edit from WSL
+1. Edit files directly in this directory
+2. Apply configurations by restarting shell or reloading configs
+3. Optionally sync to Windows:
+
+\`\`\`bash
+# Sync to Windows
+./sync-to-windows.sh
+\`\`\`
+
+## Version Control
+
+This directory is a git repository. To track your changes:
+
+\`\`\`bash
+# Add changes
+git add .
+
+# Commit changes
+git commit -m "Update configurations"
+
+# Push to remote (if configured)
+git push
+\`\`\`
+
+## Upgrading to Chezmoi
+
+To upgrade to Chezmoi for advanced template support:
+
+\`\`\`bash
+# Install chezmoi
+sh -c "\$(curl -fsLS get.chezmoi.io)"
+
+# Initialize with this directory
+chezmoi init --source $HOME/dotfiles
+
+# Apply configurations
+chezmoi apply
+\`\`\`
+EOL
+    
+    print_success "Manual sync scripts created successfully"
+}
+
+# Setup Chezmoi for cross-platform dotfile management
 setup_chezmoi() {
-    print_header "Setting up Chezmoi for dotfile management"
+    print_header "Setting up Chezmoi for cross-platform dotfile management"
     
     # Install chezmoi first
     if ! command_exists chezmoi; then
@@ -509,31 +638,30 @@ setup_chezmoi() {
         fi
     fi
     
-    # Configure chezmoi
+    # Configure chezmoi to use WSL ~/dotfiles as source directory
     mkdir -p "$HOME/.config/chezmoi"
-    print_step "Configuring chezmoi to use dotfiles directory: $CHEZMOI_SOURCE_DIR"
-    
-    # Get Windows username for cross-platform support
-    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+    print_step "Configuring chezmoi to use WSL dotfiles directory: $DOTFILES_DIR"
     
     cat > "$HOME/.config/chezmoi/chezmoi.toml" << EOF
-# Chezmoi configuration for WSL development environment
-sourceDir = "$CHEZMOI_SOURCE_DIR"
+# Chezmoi configuration for cross-platform WSL development environment
+sourceDir = "$DOTFILES_DIR"
 
 [data]
     name = "$GIT_NAME"
     email = "$GIT_EMAIL"
     windowsUser = "$WIN_USER"
+    wslHome = "$HOME"
+    windowsDotfiles = "/mnt/c/Users/$WIN_USER/dotfiles"
     
 [edit]
     command = "nvim"
 EOF
     
-    # Initialize git repo in the source directory if not already present
-    if [ ! -d "$CHEZMOI_SOURCE_DIR/.git" ]; then
-        print_step "Initializing git repository in dotfiles..."
-        cd "$CHEZMOI_SOURCE_DIR" || return 1
-        git init
+    # Initialize git repo in the dotfiles directory if not already present
+    if [ ! -d "$DOTFILES_DIR/.git" ]; then
+        print_step "Initializing git repository in WSL dotfiles..."
+        cd "$DOTFILES_DIR" || return 1
+        git init -b main
         
         # Create .gitignore if it doesn't exist
         if [ ! -f ".gitignore" ]; then
@@ -563,43 +691,79 @@ venv/
 
 # Machine-specific files
 .chezmoi.toml.local
+
+# OS-specific directories
+.Trash-*/
 EOL
         fi
         
         # Create initial commit if needed
         if ! git rev-parse HEAD >/dev/null 2>&1; then
             git add .
-            git commit -m "Initial commit: My dotfiles"
+            git commit -m "Initial commit: Cross-platform dotfiles managed by Chezmoi"
         fi
         
         cd "$HOME" || return 1
     fi
     
-    # Create README if it doesn't exist
-    if [ ! -f "$CHEZMOI_SOURCE_DIR/README.md" ]; then
-        cat > "$CHEZMOI_SOURCE_DIR/README.md" << 'EOL'
-# My Dotfiles
+    # Create README with cross-platform instructions
+    if [ ! -f "$DOTFILES_DIR/README.md" ]; then
+        cat > "$DOTFILES_DIR/README.md" << EOL
+# My Cross-Platform Dotfiles
 
-This directory contains my dotfiles managed by [chezmoi](https://www.chezmoi.io).
+This directory contains my dotfiles managed by [chezmoi](https://www.chezmoi.io) for cross-platform use between Windows and WSL.
+
+## Architecture
+
+- **WSL Primary**: \`$DOTFILES_DIR\` (this directory)
+- **Windows Sync**: \`C:\\Users\\$WIN_USER\\dotfiles\`
+- **Management**: Chezmoi handles cross-platform differences
 
 ## Quick Start
 
 To apply dotfiles on a new machine:
 
-```bash
+\`\`\`bash
 # Install chezmoi
-sh -c "$(curl -fsLS get.chezmoi.io)"
+sh -c "\$(curl -fsLS get.chezmoi.io)"
 
 # Initialize from this repo
 chezmoi init <your-github-username>
 
 # Apply the dotfiles
 chezmoi apply
-```
+\`\`\`
+
+## Cross-Platform Workflow
+
+### Editing from WSL
+\`\`\`bash
+# Edit files directly in this directory
+nvim $DOTFILES_DIR/.zshrc
+
+# Or use chezmoi
+chezmoi edit ~/.zshrc
+
+# Apply changes
+chezmoi apply
+
+# Sync to Windows (if desired)
+cp -r $DOTFILES_DIR/* /mnt/c/Users/$WIN_USER/dotfiles/
+\`\`\`
+
+### Editing from Windows
+\`\`\`bash
+# Edit files in C:\\Users\\$WIN_USER\\dotfiles
+# Then import changes back to WSL
+cp -r /mnt/c/Users/$WIN_USER/dotfiles/* $DOTFILES_DIR/
+
+# Apply with chezmoi
+chezmoi apply
+\`\`\`
 
 ## Daily Usage
 
-```bash
+\`\`\`bash
 # See what would change
 chezmoi diff
 
@@ -614,20 +778,89 @@ chezmoi edit ~/.zshrc
 
 # Update from remote
 chezmoi update
-```
+\`\`\`
+
+## Cross-Platform Templates
+
+Files can use templates to handle OS differences:
+
+\`\`\`go
+{{- if eq .chezmoi.os "linux" }}
+# WSL/Linux specific configuration
+{{- else if eq .chezmoi.os "windows" }}
+# Windows specific configuration
+{{- end }}
+\`\`\`
 EOL
     fi
     
-    print_success "Chezmoi setup completed"
+    # Create helper scripts for cross-platform syncing
+    print_step "Creating cross-platform sync helper scripts..."
+    
+    # Script to sync WSL dotfiles to Windows
+    cat > "$DOTFILES_DIR/sync-to-windows.sh" << 'EOF'
+#!/bin/bash
+# Sync WSL dotfiles to Windows dotfiles directory
+
+WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
+
+echo "Syncing WSL dotfiles to Windows..."
+echo "From: $DOTFILES_DIR"
+echo "To: $WIN_DOTFILES"
+
+# Create Windows dotfiles directory if it doesn't exist
+mkdir -p "$WIN_DOTFILES"
+
+# Copy all files from WSL to Windows
+rsync -av --delete \
+    --exclude='.git/' \
+    --exclude='sync-*.sh' \
+    "$DOTFILES_DIR/" "$WIN_DOTFILES/"
+
+echo "Sync complete!"
+EOF
+    chmod +x "$DOTFILES_DIR/sync-to-windows.sh"
+    
+    # Script to sync Windows dotfiles to WSL
+    cat > "$DOTFILES_DIR/sync-from-windows.sh" << 'EOF'
+#!/bin/bash
+# Sync Windows dotfiles to WSL dotfiles directory
+
+WIN_DOTFILES="/mnt/c/Users/$WIN_USER/dotfiles"
+
+if [ ! -d "$WIN_DOTFILES" ]; then
+    echo "Windows dotfiles directory not found: $WIN_DOTFILES"
+    exit 1
+fi
+
+echo "Syncing Windows dotfiles to WSL..."
+echo "From: $WIN_DOTFILES"
+echo "To: $DOTFILES_DIR"
+
+# Copy all files from Windows to WSL (excluding git and scripts)
+rsync -av \
+    --exclude='.git/' \
+    --exclude='sync-*.sh' \
+    "$WIN_DOTFILES/" "$DOTFILES_DIR/"
+
+echo "Sync complete! Run 'chezmoi apply' to apply changes."
+EOF
+    chmod +x "$DOTFILES_DIR/sync-from-windows.sh"
+    
+    print_success "Chezmoi cross-platform setup completed"
     
     # Show helpful chezmoi commands
-    echo -e "\n${CYAN}Helpful chezmoi commands:${NC}"
-    echo -e "${BLUE}→ chezmoi add ~/.zshrc${NC}    # Add a file to be managed"
-    echo -e "${BLUE}→ chezmoi edit ~/.zshrc${NC}   # Edit a managed file"
-    echo -e "${BLUE}→ chezmoi diff${NC}            # See what would change"
-    echo -e "${BLUE}→ chezmoi apply${NC}           # Apply changes"
-    echo -e "${BLUE}→ chezmoi update${NC}          # Pull and apply latest changes"
-    echo -e "${BLUE}→ chezmoi cd${NC}              # Open shell in source directory"
+    echo -e "\n${CYAN}Cross-Platform Dotfiles Commands:${NC}"
+    echo -e "${BLUE}→ chezmoi add ~/.zshrc${NC}              # Add a file to be managed"
+    echo -e "${BLUE}→ chezmoi edit ~/.zshrc${NC}             # Edit a managed file"
+    echo -e "${BLUE}→ chezmoi diff${NC}                      # See what would change"
+    echo -e "${BLUE}→ chezmoi apply${NC}                     # Apply changes"
+    echo -e "${BLUE}→ chezmoi update${NC}                    # Pull and apply latest changes"
+    echo -e "${BLUE}→ chezmoi cd${NC}                        # Open shell in source directory"
+    echo -e ""
+    echo -e "${CYAN}Cross-Platform Sync:${NC}"
+    echo -e "${BLUE}→ ~/dotfiles/sync-to-windows.sh${NC}    # Sync WSL → Windows"
+    echo -e "${BLUE}→ ~/dotfiles/sync-from-windows.sh${NC}  # Sync Windows → WSL"
     
     return 0
 }
@@ -934,46 +1167,78 @@ setup_music_system() {
     install_packages_robust "mpd rmpc mpc alsa-utils pulseaudio" "music player daemon and audio system"
     
     # Get Windows username for music path
-    WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
     if [ -z "$WIN_USER" ]; then
-        WIN_USER="$USER"
+        WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+        if [ -z "$WIN_USER" ]; then
+            WIN_USER="$USER"
+        fi
+    fi
+    
+    # Determine music directory - check Windows first, create fallback if needed
+    local music_dir="/mnt/c/Users/$WIN_USER/Music"
+    local fallback_music_dir="$HOME/Music"
+    
+    if [ ! -d "$music_dir" ]; then
+        print_warning "Windows Music directory not found: $music_dir"
+        print_step "Creating fallback music directory: $fallback_music_dir"
+        ensure_dir "$fallback_music_dir"
+        music_dir="$fallback_music_dir"
+        
+        # Create a sample music file to test MPD
+        if [ ! -f "$fallback_music_dir/README.txt" ]; then
+            cat > "$fallback_music_dir/README.txt" << 'EOF'
+This is your music directory for MPD.
+
+To use your Windows music:
+1. Ensure you have music in C:\Users\%USERNAME%\Music
+2. Update MPD config to point to /mnt/c/Users/%USERNAME%/Music
+3. Run 'mpc update' to refresh the database
+
+For now, you can place music files in this directory.
+EOF
+        fi
+    else
+        print_success "Found Windows Music directory: $music_dir"
     fi
     
     # Configure MPD
     local mpd_config_dir="$DOTFILES_DIR/.config/mpd"
     ensure_dir "$mpd_config_dir"
     
-    # Create MPD directories
+    # Create required MPD directories as per Arch Wiki recommendations
+    ensure_dir "$HOME/.config/mpd"
     ensure_dir "$HOME/.local/share/mpd"
     ensure_dir "$HOME/.local/share/mpd/playlists"
+    ensure_dir "$HOME/.local/state/mpd"
     
-    print_step "Creating MPD configuration with Windows music access..."
+    print_step "Creating MPD configuration for WSL with music access..."
     cat > "$mpd_config_dir/mpd.conf" << EOF
-# MPD Configuration for WSL with Windows Music Access
+# MPD Configuration for WSL Development Environment
+# Based on Arch Wiki recommendations and WSL-specific settings
 
-# Music directory (Windows music folder)
-music_directory     "/mnt/c/Users/$WIN_USER/Music"
+# Music directory - verified to exist
+music_directory     "$music_dir"
 
-# MPD data directories
+# MPD data directories (following Arch Wiki XDG paths)
 playlist_directory  "$HOME/.local/share/mpd/playlists"
 db_file             "$HOME/.local/share/mpd/database"
 log_file            "$HOME/.local/share/mpd/log"
 pid_file            "$HOME/.local/share/mpd/pid"
-state_file          "$HOME/.local/share/mpd/state"
+state_file          "$HOME/.local/state/mpd/state"
 sticker_file        "$HOME/.local/share/mpd/sticker.sql"
 
-# Network settings
+# Network settings - bind to localhost to avoid connection issues
 bind_to_address     "127.0.0.1"
 port                "6600"
 
-# Audio output configuration
+# Audio output configuration for WSL
 audio_output {
     type        "pulse"
     name        "PulseAudio Output"
     server      "unix:/mnt/wslg/PulseServer"
 }
 
-# Alternative ALSA output (fallback)
+# ALSA fallback output
 audio_output {
     type        "alsa"
     name        "ALSA Output"
@@ -981,40 +1246,48 @@ audio_output {
     enabled     "no"
 }
 
-# Performance settings
+# Performance and scanning settings
 auto_update         "yes"
 auto_update_depth   "3"
 follow_outside_symlinks "yes"
 follow_inside_symlinks  "yes"
+
+# Reduce log verbosity
+log_level           "default"
 
 # Input plugins
 input {
     plugin "curl"
 }
 
-# Decoder plugins
+# Decoder plugins - enable common formats
 decoder {
-    plugin                  "mad"
-    enabled                 "yes"
+    plugin      "mad"
+    enabled     "yes"
 }
 
 decoder {
-    plugin                  "flac"
-    enabled                 "yes"
+    plugin      "flac"  
+    enabled     "yes"
 }
 
 decoder {
-    plugin                  "vorbis"
-    enabled                 "yes"
+    plugin      "vorbis"
+    enabled     "yes"
 }
 
 decoder {
-    plugin                  "opus"
-    enabled                 "yes"
+    plugin      "opus"
+    enabled     "yes"
+}
+
+decoder {
+    plugin      "mpcdec"
+    enabled     "yes"
 }
 EOF
     
-    # Create symlink for MPD config
+    # Create symlink for MPD config (following dotfiles pattern)
     ensure_dir "$HOME/.config"
     if [ -L "$HOME/.config/mpd" ] || [ -d "$HOME/.config/mpd" ]; then
         rm -rf "$HOME/.config/mpd"
@@ -1027,6 +1300,10 @@ EOF
         ensure_dir "$HOME/.config/mpd"
         cp "$mpd_config_dir/mpd.conf" "$HOME/.config/mpd/mpd.conf"
     fi
+    
+    print_success "MPD configuration created and linked"
+    print_step "Config location: $HOME/.config/mpd/mpd.conf"
+    print_step "Music directory: $music_dir"
     
     # Configure rmpc
     local rmpc_config_dir="$DOTFILES_DIR/.config/rmpc"
@@ -1117,69 +1394,193 @@ EOF
         safe_add_to_chezmoi "$HOME/.config/rmpc" "rmpc music client configuration"
     fi
     
-    # Create helper scripts
+    # Create helper scripts with proper error handling
     print_step "Creating music system helper scripts..."
     
-    # MPD control script
-    cat > "$HOME/bin/music-start" << 'EOF'
+    # MPD control script with robust error handling
+    cat > "$HOME/bin/music-start" << EOF
 #!/bin/bash
-# Start MPD daemon and rmpc client
+# Start MPD daemon with proper error handling
+# Based on Arch Linux MPD setup recommendations
 
-# Ensure MPD directories exist
-mkdir -p "$HOME/.local/share/mpd/playlists"
+# Get Windows username
+WIN_USER=\$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+if [ -z "\$WIN_USER" ]; then
+    WIN_USER="\$USER"
+fi
+
+# Determine music directory
+MUSIC_DIR="/mnt/c/Users/\$WIN_USER/Music"
+if [ ! -d "\$MUSIC_DIR" ]; then
+    MUSIC_DIR="\$HOME/Music"
+fi
+
+# Ensure all required MPD directories exist
+mkdir -p "\$HOME/.config/mpd"
+mkdir -p "\$HOME/.local/share/mpd/playlists"
+mkdir -p "\$HOME/.local/state/mpd"
+
+# Check if MPD is already running
+if pgrep -f "mpd" > /dev/null; then
+    echo "MPD is already running"
+    exit 0
+fi
+
+# Check if config exists
+if [ ! -f "\$HOME/.config/mpd/mpd.conf" ]; then
+    echo "Error: MPD configuration not found at \$HOME/.config/mpd/mpd.conf"
+    echo "Please run the setup script again"
+    exit 1
+fi
+
+# Check music directory accessibility
+if [ ! -d "\$MUSIC_DIR" ]; then
+    echo "Warning: Music directory not found: \$MUSIC_DIR"
+    echo "Creating fallback directory..."
+    mkdir -p "\$HOME/Music"
+    MUSIC_DIR="\$HOME/Music"
+fi
+
+# Test MPD configuration
+echo "Testing MPD configuration..."
+if ! mpd --test ~/.config/mpd/mpd.conf 2>/dev/null; then
+    echo "Error: MPD configuration test failed"
+    echo "Check your MPD configuration at ~/.config/mpd/mpd.conf"
+    exit 1
+fi
 
 # Start MPD
 echo "Starting MPD..."
-mpd --no-daemon --stderr ~/.config/mpd/mpd.conf &
-MPD_PID=$!
+mpd ~/.config/mpd/mpd.conf
 
-# Wait a moment for MPD to start
-sleep 2
-
-# Update database if music directory exists
-if [ -d "/mnt/c/Users/$USER/Music" ]; then
-    echo "Updating music database..."
-    mpc update
+# Wait for MPD to start and check if it's running
+sleep 3
+if ! pgrep -f "mpd" > /dev/null; then
+    echo "Error: MPD failed to start"
+    echo "Check MPD log: \$HOME/.local/share/mpd/log"
+    exit 1
 fi
 
-echo "MPD started (PID: $MPD_PID)"
-echo "Music directory: /mnt/c/Users/$USER/Music"
+MPD_PID=\$(pgrep -f "mpd")
+echo "MPD started (PID: \$MPD_PID)"
+
+# Update database with timeout
+echo "Updating music database..."
+if timeout 30 mpc update >/dev/null 2>&1; then
+    echo "Database update completed"
+else
+    echo "Database update timed out or failed (this is normal for large collections)"
+fi
+
+echo ""
+echo "Music directory: \$MUSIC_DIR"
 echo "Run 'rmpc' to start the music client"
 echo "Run 'music-stop' to stop the daemon"
+echo "Run 'music-status' to check status"
 EOF
     chmod +x "$HOME/bin/music-start"
     
-    # MPD stop script
+    # MPD stop script with better error handling
     cat > "$HOME/bin/music-stop" << 'EOF'
 #!/bin/bash
 # Stop MPD daemon
 
+if ! pgrep -f "mpd" > /dev/null; then
+    echo "MPD is not running"
+    exit 0
+fi
+
 echo "Stopping MPD..."
-mpd --kill ~/.config/mpd/mpd.conf 2>/dev/null || killall mpd 2>/dev/null
-echo "MPD stopped"
+
+# Try graceful shutdown first
+if [ -f "$HOME/.config/mpd/mpd.conf" ]; then
+    mpd --kill ~/.config/mpd/mpd.conf 2>/dev/null
+fi
+
+# Wait a moment
+sleep 2
+
+# Force kill if still running
+if pgrep -f "mpd" > /dev/null; then
+    echo "Force stopping MPD..."
+    killall mpd 2>/dev/null
+fi
+
+# Verify it's stopped
+sleep 1
+if pgrep -f "mpd" > /dev/null; then
+    echo "Warning: MPD may still be running"
+else
+    echo "MPD stopped successfully"
+fi
 EOF
     chmod +x "$HOME/bin/music-stop"
     
-    # Quick music status script
-    cat > "$HOME/bin/music-status" << 'EOF'
+    # Enhanced music status script
+    cat > "$HOME/bin/music-status" << EOF
 #!/bin/bash
-# Show music system status
+# Show comprehensive music system status
 
 echo "=== Music System Status ==="
+
+# Check MPD status
 if pgrep -f "mpd" > /dev/null; then
-    echo "MPD: Running"
-    mpc status
+    echo "MPD: Running (PID: \$(pgrep -f "mpd"))"
+    
+    # Try to get MPD status
+    if timeout 5 mpc status >/dev/null 2>&1; then
+        echo "MPD Connection: OK"
+        mpc status
+    else
+        echo "MPD Connection: Failed (connection refused)"
+        echo "Try running 'music-stop' then 'music-start'"
+    fi
 else
     echo "MPD: Not running"
     echo "Run 'music-start' to start the music system"
 fi
 
 echo ""
-echo "Music directory: /mnt/c/Users/$USER/Music"
-if [ -d "/mnt/c/Users/$USER/Music" ]; then
-    echo "Music files found: $(find "/mnt/c/Users/$USER/Music" -type f \( -name "*.mp3" -o -name "*.flac" -o -name "*.ogg" -o -name "*.m4a" \) | wc -l)"
+
+# Check music directories
+WIN_USER=\$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r\n')
+if [ -z "\$WIN_USER" ]; then
+    WIN_USER="\$USER"
+fi
+
+WIN_MUSIC="/mnt/c/Users/\$WIN_USER/Music"
+LOCAL_MUSIC="\$HOME/Music"
+
+echo "=== Music Directories ==="
+if [ -d "\$WIN_MUSIC" ]; then
+    echo "Windows Music: \$WIN_MUSIC (exists)"
+    MUSIC_COUNT=\$(find "\$WIN_MUSIC" -type f \\( -name "*.mp3" -o -name "*.flac" -o -name "*.ogg" -o -name "*.m4a" -o -name "*.wav" \\) 2>/dev/null | wc -l)
+    echo "Music files found: \$MUSIC_COUNT"
 else
-    echo "Warning: Music directory not found"
+    echo "Windows Music: \$WIN_MUSIC (not found)"
+fi
+
+if [ -d "\$LOCAL_MUSIC" ]; then
+    echo "Local Music: \$LOCAL_MUSIC (exists)"
+    LOCAL_COUNT=\$(find "\$LOCAL_MUSIC" -type f \\( -name "*.mp3" -o -name "*.flac" -o -name "*.ogg" -o -name "*.m4a" -o -name "*.wav" \\) 2>/dev/null | wc -l)
+    echo "Local music files: \$LOCAL_COUNT"
+fi
+
+echo ""
+echo "=== Configuration ==="
+if [ -f "\$HOME/.config/mpd/mpd.conf" ]; then
+    echo "MPD Config: \$HOME/.config/mpd/mpd.conf (exists)"
+    CONFIGURED_DIR=\$(grep "^music_directory" "\$HOME/.config/mpd/mpd.conf" | cut -d'"' -f2)
+    echo "Configured music directory: \$CONFIGURED_DIR"
+else
+    echo "MPD Config: Missing"
+fi
+
+# Check log for recent errors
+if [ -f "\$HOME/.local/share/mpd/log" ]; then
+    echo ""
+    echo "=== Recent MPD Log (last 5 lines) ==="
+    tail -5 "\$HOME/.local/share/mpd/log"
 fi
 EOF
     chmod +x "$HOME/bin/music-status"
@@ -1220,11 +1621,19 @@ EOF
     print_success "Music system (MPD + rmpc) configured successfully"
     
     echo -e "\n${CYAN}Music System Setup Complete:${NC}"
-    echo -e "${BLUE}→ Music directory: /mnt/c/Users/$WIN_USER/Music${NC}"
+    echo -e "${BLUE}→ Primary music directory: $music_dir${NC}"
+    if [ "$music_dir" != "/mnt/c/Users/$WIN_USER/Music" ]; then
+        echo -e "${YELLOW}→ Windows music not found, using: $music_dir${NC}"
+        echo -e "${YELLOW}→ To use Windows music later: Place music in C:\\Users\\$WIN_USER\\Music${NC}"
+    fi
     echo -e "${BLUE}→ Start music system: ${GREEN}music-start${NC}"
     echo -e "${BLUE}→ Launch music client: ${GREEN}rmpc${NC} or ${GREEN}music${NC}"
     echo -e "${BLUE}→ Check status: ${GREEN}music-status${NC}"
     echo -e "${BLUE}→ Stop music system: ${GREEN}music-stop${NC}"
+    echo -e ""
+    echo -e "${CYAN}Configuration files:${NC}"
+    echo -e "${BLUE}→ MPD config: ~/.config/mpd/mpd.conf${NC}"
+    echo -e "${BLUE}→ Stored in dotfiles: $mpd_config_dir/mpd.conf${NC}"
     echo -e ""
     echo -e "${YELLOW}Note: Run ${GREEN}music-start${YELLOW} before using ${GREEN}rmpc${YELLOW} to start the MPD daemon${NC}"
     
@@ -2750,25 +3159,32 @@ create_manual_dotfile_docs() {
     
     # Create a basic documentation file
     cat > "$SETUP_DIR/docs/dotfiles/getting-started.md" << EOL
-# Getting Started with Manual Dotfile Management
+# Getting Started with Cross-Platform Dotfile Management
 
-Your dotfiles are stored in: \`$DOTFILES_DIR\`
+Your dotfiles are stored in: \`$DOTFILES_DIR\` (WSL)
 
-$(if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
-    echo "This is a **unified Windows + WSL setup** that allows cross-platform dotfile editing!"
-    echo ""
-    echo "### Cross-Platform Access"
-    echo ""
-    echo "- **WSL path:** \`$DOTFILES_DIR\`"
-    echo "- **Windows path:** \`$(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')\`"
-    echo ""
-    echo "You can edit your dotfiles from either Windows or WSL:"
-    echo ""
-    echo "1. **From Windows:** Open \`$(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')\` in your editor"
-    echo "2. **From WSL:** Edit files directly in \`$DOTFILES_DIR\`"
-else
-    echo "This is a **WSL-only setup** with dotfiles stored in your WSL file system."
-fi)
+This is a **cross-platform setup** that allows editing and syncing between Windows and WSL!
+
+### Cross-Platform Architecture
+
+- **Primary Location:** \`$DOTFILES_DIR\` (WSL)
+- **Windows Sync Location:** \`C:\\Users\\$WIN_USER\\dotfiles\`
+- **Management:** Manual sync scripts or Chezmoi
+
+### Sync Commands
+
+Your dotfiles directory includes helpful sync scripts:
+
+- **\`~/dotfiles/sync-to-windows.sh\`** - Sync WSL dotfiles to Windows
+- **\`~/dotfiles/sync-from-windows.sh\`** - Sync Windows dotfiles back to WSL
+
+### Cross-Platform Editing Workflow
+
+1. **Edit from WSL:** Edit files directly in \`$DOTFILES_DIR\`
+2. **Edit from Windows:** 
+   - Run \`~/dotfiles/sync-to-windows.sh\` first
+   - Edit files in \`C:\\Users\\$WIN_USER\\dotfiles\`
+   - Run \`~/dotfiles/sync-from-windows.sh\` to sync back
 
 ## How It Works
 
@@ -3794,15 +4210,14 @@ display_completion_message() {
     echo -e "To update your environment: ${GREEN}~/dev/update.sh${NC}"
     
     # Show dotfiles information
-    echo -e "\n${CYAN}Dotfiles Management:${NC}"
-    if [[ "$DOTFILES_DIR" == "/mnt/c/"* ]]; then
-        echo -e "${GREEN}✓ Unified Windows + WSL dotfiles enabled${NC}"
-        echo -e "Windows path: ${BLUE}$(echo "$DOTFILES_DIR" | sed 's|/mnt/c|C:|')${NC}"
-        echo -e "WSL path: ${BLUE}$DOTFILES_DIR${NC}"
-        echo -e "Edit from either Windows or WSL - changes sync automatically!"
-    else
-        echo -e "WSL-only dotfiles: ${BLUE}$DOTFILES_DIR${NC}"
+    echo -e "\n${CYAN}Cross-Platform Dotfiles Management:${NC}"
+    echo -e "${GREEN}✓ WSL dotfiles directory created: ${BLUE}$DOTFILES_DIR${NC}"
+    echo -e "${GREEN}✓ Windows sync capability enabled${NC}"
+    if [ -d "/mnt/c/Users/$WIN_USER/dotfiles" ]; then
+        echo -e "Windows dotfiles location: ${BLUE}C:\\Users\\$WIN_USER\\dotfiles${NC}"
+        echo -e "Sync commands available in ~/dotfiles/"
     fi
+    echo -e "Edit from either Windows or WSL and use sync scripts!"
     
     if [ "$USE_CHEZMOI" = true ]; then
         echo -e "Dotfile manager: ${GREEN}Chezmoi enabled${NC}"
